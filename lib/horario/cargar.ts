@@ -1,4 +1,6 @@
 import { supabase } from '@/lib/supabase'
+import { esInvitado } from '@/lib/invitado/estado'
+import { cargarHorarioInvitado } from '@/lib/invitado/datos'
 import type { BloqueHorario } from './tipos'
 import { filaABloqueHorario, type FilaHorario } from './mapear'
 
@@ -9,6 +11,7 @@ import { filaABloqueHorario, type FilaHorario } from './mapear'
 // horario que cambió (Class Schedule Agent, Sprint 8) y no debe entrar en
 // la inferencia de fecha.
 export async function cargarHorario(): Promise<BloqueHorario[]> {
+  if (await esInvitado()) return cargarHorarioInvitado()
   const { data, error } = await supabase.from('horario').select('*').eq('activo', true).order('dia_semana')
   if (error || !data) return []
   return (data as FilaHorario[]).map(filaABloqueHorario)

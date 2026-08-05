@@ -8,12 +8,18 @@ import { filaABloqueHorario, type FilaHorario } from '@/lib/horario/mapear'
 import { cargarMaterias, cargarTareas } from '@/lib/tasks'
 import { useRealtimeSync } from '@/lib/useRealtimeSync'
 import { reconciliar } from '@/lib/realtimeReconciliar'
+import { esInvitado } from '@/lib/invitado/estado'
 
 export type DatosAgenda = {
   materias: Materia[]
   tareas: Tarea[]
   horario: BloqueHorario[]
   cargando: boolean
+  // Modo invitado — ya se resuelve internamente para gatear Realtime (ver
+  // abajo); se expone acá para que AgendaHome pueda ajustar su propia UI
+  // (ocultar NotificationBell, mostrar BannerInvitado) sin resolverlo por
+  // su cuenta con un efecto aparte.
+  invitado: boolean
   // Sprint Home — expuesto para que `AgendaHome` (la única pantalla con
   // mutaciones) pueda refrescar el MISMO estado que ya devuelve este hook
   // tras crear/toggle/borrar/editar/fusionar, en vez de mantener una copia
@@ -41,15 +47,21 @@ export function useDatosAgenda(): DatosAgenda {
   const [tareas, setTareas] = useState<Tarea[]>([])
   const [horario, setHorario] = useState<BloqueHorario[]>([])
   const [cargando, setCargando] = useState(true)
+  // Modo invitado — sin sesión, Realtime no tiene nada que suscribir (el
+  // filtro `user_id=eq.<uid>` no aplica). Resuelto una vez junto con la
+  // carga inicial, no en un efecto aparte, para no sumar otro `setState`
+  // fuera de este mismo bloque ya guardado por `activo`.
+  const [invitado, setInvitado] = useState(false)
 
   useEffect(() => {
     let activo = true
     ;(async () => {
-      const [mData, tData, hData] = await Promise.all([cargarMaterias(), cargarTareas(), cargarHorario()])
+      const [mData, tData, hData, esInv] = await Promise.all([cargarMaterias(), cargarTareas(), cargarHorario(), esInvitado()])
       if (!activo) return
       setMaterias(mData)
       setTareas(tData)
       setHorario(hData)
+      setInvitado(esInv)
       setCargando(false)
     })()
     return () => {
@@ -69,16 +81,19 @@ export function useDatosAgenda(): DatosAgenda {
   // todavía no terminó de llegar del fetch inicial. Idempotente por `id`
   // (ver reconciliar()), así que el eco de una escritura que el propio
   // dispositivo ya aplicó vía `recargar()` no duplica nada.
-  useRealtimeSync<Tarea>('tareas', !cargando, (evento) => setTareas((actuales) => reconciliar(actuales, evento)))
-  useRealtimeSync<Materia>('materias', !cargando, (evento) => setMaterias((actuales) => reconciliar(actuales, evento)))
+  // `&& !invitado`: sin sesión, el filtro `user_id=eq.<uid>` de Realtime no
+  // tiene a quién suscribir — un invitado nunca sincroniza entre
+  // dispositivos, sus datos son locales.
+  useRealtimeSync<Tarea>('tareas', !cargando && !invitado, (evento) => setTareas((actuales) => reconciliar(actuales, evento)))
+  useRealtimeSync<Materia>('materias', !cargando && !invitado, (evento) => setMaterias((actuales) => reconciliar(actuales, evento)))
   // `horario` llega en snake_case (fila cruda de Postgres) — se mapea a
   // BloqueHorario (camelCase) con el mismo mapeo puro que ya usa
   // lib/horario/cargar.ts, antes de reconciliar. Sin esto, un bloque
   // nuevo por Realtime tendría `materia_id` en vez de `materiaId` y
   // rompería silenciosamente todo lo que lee ese campo.
-  useRealtimeSync<FilaHorario>('horario', !cargando, (evento) =>
+  useRealtimeSync<FilaHorario>('horario', !cargando && !invitado, (evento) =>
     setHorario((actuales) => reconciliar(actuales, { tipo: evento.tipo, fila: filaABloqueHorario(evento.fila) }))
   )
 
-  return { materias, tareas, horario, cargando, recargar }
+  return { materias, tareas, horario, cargando, invitado, recargar }
 }

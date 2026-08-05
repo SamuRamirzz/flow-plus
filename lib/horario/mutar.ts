@@ -1,4 +1,6 @@
 import { apiPost, apiPatch, apiDelete } from '@/lib/api/cliente'
+import { esInvitado } from '@/lib/invitado/estado'
+import { crearBloqueHorarioInvitado, actualizarBloqueHorarioInvitado, eliminarBloqueHorarioInvitado } from '@/lib/invitado/datos'
 import type { BloqueHorario, DiaSemana } from './tipos'
 import { filaABloqueHorario, type FilaHorario } from './mapear'
 
@@ -10,12 +12,14 @@ export type NuevoBloqueInput = {
 }
 
 export async function crearBloqueHorario(input: NuevoBloqueInput): Promise<{ ok: true; bloque: BloqueHorario } | { ok: false; error: string }> {
+  if (await esInvitado()) return crearBloqueHorarioInvitado(input)
   const resultado = await apiPost<FilaHorario>('/api/horario', input)
   if (!resultado.ok) return { ok: false, error: resultado.error }
   return { ok: true, bloque: filaABloqueHorario(resultado.data) }
 }
 
 export async function eliminarBloqueHorario(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (await esInvitado()) return eliminarBloqueHorarioInvitado(id)
   const resultado = await apiDelete(`/api/horario/${id}`)
   if (!resultado.ok) return { ok: false, error: resultado.error }
   return { ok: true }
@@ -37,6 +41,7 @@ export async function actualizarBloqueHorario(
   id: string,
   cambios: CambiosBloqueHorario
 ): Promise<{ ok: true; bloque: BloqueHorario } | { ok: false; error: string }> {
+  if (await esInvitado()) return actualizarBloqueHorarioInvitado(id, cambios)
   const resultado = await apiPatch<FilaHorario>(`/api/horario/${id}`, cambios)
   if (!resultado.ok) return { ok: false, error: resultado.error }
   return { ok: true, bloque: filaABloqueHorario(resultado.data) }

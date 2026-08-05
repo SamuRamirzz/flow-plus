@@ -272,3 +272,26 @@ parte para escribir a la IA ya rediseñada).
 - **Historial de conversaciones con la IA** — guardar y poder revisar
   conversaciones pasadas de `/ai`. Ligado a memoria persistente (Fase 0/2 de
   `ROADMAP.md`), diseñar junto con eso cuando se retome.
+- **Modo invitado (sin cuenta, datos en localStorage + sync al registrarse)**
+  — encargo recibido y revisado el 2026-08-08, **pospuesto a propósito**
+  (decisión del usuario: no es bloqueante de lanzamiento, y el bloqueante
+  real — facturación de Gemini, ver `ROADMAP.md` — sigue sin resolver).
+  El spec original tenía 3 problemas reales encontrados contra el código
+  antes de escribir nada, que hay que corregir si se retoma:
+  1. Nombres de campo equivocados (`title`/`name` en vez de `titulo`/
+     `nombre` — `lib/types.ts`), señal de que no se leyó el schema real.
+  2. La sincronización al registrarse NO puede hacer
+     `supabase.from(...).insert()` desde el cliente — la migración
+     `20260801000000_revocar_escrituras_anon.sql` revocó escritura a
+     `anon`/`authenticated` a propósito; solo `service_role` (server-side)
+     escribe. Necesita un Route Handler nuevo.
+  3. El alcance es mucho mayor de lo que el encargo sugería: desde el
+     Sprint 6 toda mutación pasa por Route Handlers con `requerirUsuario()`
+     (401 sin sesión), y `proxy.ts` ya redirige sin sesión en toda ruta de
+     página — "modo invitado" implica abrir ese candado a propósito Y
+     escribir una segunda implementación completa de cada mutación en
+     localStorage, en paralelo a la que ya existe. La promesa de que "la
+     IA funciona en modo invitado" es falsa tal como está la arquitectura
+     hoy (cada agente persiste vía Route Handlers autenticados) — si se
+     retoma, la decisión ya tomada es que la IA quede fuera de modo
+     invitado (exige login), mismo criterio que notificaciones/realtime.

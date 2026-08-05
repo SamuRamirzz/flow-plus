@@ -56,6 +56,19 @@ import { createServerClient } from '@supabase/ssr'
 // por retirar el teléfono del alcance) — mismo criterio que /auth/callback.
 const RUTAS_PUBLICAS = ['/login', '/auth/callback', '/auth/confirm']
 
+// Modo invitado — /agenda y /horario funcionan sin sesión (datos en
+// localStorage, ver lib/invitado/). El resto de la app (Home, /ai,
+// Ajustes) sigue exigiendo sesión real: son las únicas dos pantallas cuyas
+// mutaciones ya son "isomórficas" (lib/tasks.ts, lib/horario/mutar.ts
+// resuelven solos si van a Supabase o a localStorage). Esta lista NO
+// reemplaza esa guarda — solo evita el redirect a /login; la decisión real
+// de qué camino de datos usar sigue viviendo en cada función.
+const RUTAS_INVITADO = ['/agenda', '/horario']
+
+function esRutaInvitado(pathname: string): boolean {
+  return RUTAS_INVITADO.some((ruta) => pathname === ruta || pathname.startsWith(`${ruta}/`))
+}
+
 function esRutaPublica(pathname: string): boolean {
   // Sprint Landing — `/` deja de estar protegida. No es que se abra la app a
   // cualquiera: `app/page.tsx` es un Server Component que decide, con la
@@ -119,7 +132,7 @@ export async function proxy(request: NextRequest) {
   // Sin sesión en una ruta de PÁGINA protegida → al login, recordando a dónde
   // iba para devolverlo ahí después de entrar. Las rutas de API se excluyen a
   // propósito: responden 401 JSON por su cuenta (ver esRutaDeApi).
-  if (!haySesion && !esRutaPublica(pathname) && !esRutaDeApi(pathname)) {
+  if (!haySesion && !esRutaPublica(pathname) && !esRutaDeApi(pathname) && !esRutaInvitado(pathname)) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.searchParams.set('volverA', pathname)

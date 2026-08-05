@@ -67,6 +67,10 @@ type Props = {
   cargando: boolean
   onQuitar: (id: string) => void
   onEditar: (bloque: BloqueHorario) => void
+  // Modo invitado — importar por foto exige sesión y ese botón ya está
+  // oculto en app/horario/page.tsx; sin este flag el estado vacío seguiría
+  // invitando a una acción que no existe en la pantalla.
+  invitado?: boolean
 }
 
 // Grilla semanal como TABLA real día × franja horaria: los días son columnas,
@@ -81,7 +85,7 @@ type Props = {
 // celdas con clase, transparente para las vacías — nunca por líneas. Es la
 // diferencia principal con un horario impreso, que sí se apoya en la
 // cuadrícula dibujada.
-export default function GrillaSemanal({ bloques, materias, cargando, onQuitar, onEditar }: Props) {
+export default function GrillaSemanal({ bloques, materias, cargando, onQuitar, onEditar, invitado }: Props) {
   const { formatoReloj } = usePreferencias()
   const filas = useMemo(() => construirFilas(bloques), [bloques])
   const dias = useMemo(() => diasVisibles(bloques), [bloques])
@@ -109,7 +113,7 @@ export default function GrillaSemanal({ bloques, materias, cargando, onQuitar, o
     return (
       <motion.div {...ENTRADA_GRILLA} className="rounded-2xl bg-panel-glass backdrop-blur-xl p-8 text-center">
         <p className="text-paper text-sm mb-1">Todavía no tienes clases guardadas</p>
-        <p className="text-muted text-xs">Agrega un bloque arriba o importa tu horario desde una foto.</p>
+        <p className="text-muted text-xs">{invitado ? 'Agrega un bloque arriba.' : 'Agrega un bloque arriba o importa tu horario desde una foto.'}</p>
       </motion.div>
     )
   }

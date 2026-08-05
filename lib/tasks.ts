@@ -3,6 +3,15 @@ import { apiPost, apiPatch, apiDelete } from './api/cliente'
 import type { Materia, Tarea } from './types'
 import type { FechaInferida } from './horario/inferirFecha'
 import type { ColisionDetectada, PosibleDuplicadoMateria, ResultadoPlausibilidad } from './ai/agents/calendar'
+import { esInvitado } from './invitado/estado'
+import {
+  cargarMateriasInvitado,
+  cargarTareasInvitado,
+  crearMateriaInvitado,
+  crearTareaInvitado,
+  actualizarTareaInvitado,
+  eliminarTareaInvitado,
+} from './invitado/datos'
 
 export type NuevaTareaInput = {
   titulo: string
@@ -50,12 +59,14 @@ export type CrearTareaResultado =
 // (Sprint 6): son las que necesitan validación de servidor y las que hoy
 // escriben con la clave anónima sin ningún control del lado del servidor.
 export async function cargarMaterias(): Promise<Materia[]> {
+  if (await esInvitado()) return cargarMateriasInvitado()
   const { data, error } = await supabase.from('materias').select('*').order('created_at')
   if (error) return []
   return data ?? []
 }
 
 export async function cargarTareas(): Promise<Tarea[]> {
+  if (await esInvitado()) return cargarTareasInvitado()
   const { data, error } = await supabase.from('tareas').select('*').order('created_at')
   if (error) return []
   return data ?? []
@@ -70,6 +81,8 @@ export async function cargarTareas(): Promise<Tarea[]> {
 // (POST /api/tareas → resolverOCrearMateria), no una copia local que podía
 // estar desactualizada, así que ya no se usa acá.
 export async function crearTarea(input: NuevaTareaInput, _materiasExistentes: Materia[]): Promise<CrearTareaResultado> {
+  if (await esInvitado()) return crearTareaInvitado(input)
+
   const resultado = await apiPost<{
     tarea: Tarea
     materiaCreada: Materia | null
@@ -99,6 +112,8 @@ export async function crearTarea(input: NuevaTareaInput, _materiasExistentes: Ma
 export async function crearMateria(
   nombre: string
 ): Promise<{ ok: true; materia: Materia; posibleDuplicado: PosibleDuplicadoMateria | null } | { ok: false; error: string }> {
+  if (await esInvitado()) return crearMateriaInvitado(nombre)
+
   const resultado = await apiPost<{ materia: Materia; posibleDuplicado: PosibleDuplicadoMateria | null }>('/api/materias', { nombre })
   if (!resultado.ok) return { ok: false, error: resultado.error }
   return { ok: true, materia: resultado.data.materia, posibleDuplicado: resultado.data.posibleDuplicado }
@@ -153,6 +168,8 @@ export type ActualizarTareaResultado =
   | { ok: false; error: string }
 
 export async function actualizarTarea(id: string, cambios: CambiosTarea): Promise<ActualizarTareaResultado> {
+  if (await esInvitado()) return actualizarTareaInvitado(id, cambios)
+
   const resultado = await apiPatch<{
     tarea: Tarea
     avisoFecha: ResultadoPlausibilidad | null
@@ -173,6 +190,8 @@ export async function actualizarTarea(id: string, cambios: CambiosTarea): Promis
 // para que quien llama pueda guardarla y ofrecer "Deshacer" — recrearla con
 // crearTarea() sin tener que guardar una copia aparte antes de borrar.
 export async function eliminarTarea(id: string): Promise<{ ok: true; tareaEliminada: Tarea } | { ok: false; error: string }> {
+  if (await esInvitado()) return eliminarTareaInvitado(id)
+
   const resultado = await apiDelete<{ eliminado: true; tarea: Tarea }>(`/api/tareas/${id}`)
   if (!resultado.ok) return { ok: false, error: resultado.error }
   return { ok: true, tareaEliminada: resultado.data.tarea }

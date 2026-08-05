@@ -17,6 +17,8 @@ import { cargarMaterias, crearMateria } from '@/lib/tasks'
 import { useToast } from '@/lib/toast'
 import { useRealtimeSync } from '@/lib/useRealtimeSync'
 import { reconciliar } from '@/lib/realtimeReconciliar'
+import { esInvitado } from '@/lib/invitado/estado'
+import BannerInvitado from '@/components/invitado/BannerInvitado'
 import MateriaPicker, { MATERIA_NUEVA } from '@/components/ui/MateriaPicker'
 import SegmentedToggle from '@/components/ui/SegmentedToggle'
 import BotonConfirmacion from '@/components/ui/BotonConfirmacion'
@@ -44,6 +46,10 @@ export default function HorarioPage() {
   const [materias, setMaterias] = useState<Materia[]>([])
   const [bloques, setBloques] = useState<BloqueHorario[]>([])
   const [cargando, setCargando] = useState(true)
+  // Modo invitado — importar por foto exige sesión (lib/storage.ts la
+  // requiere explícitamente); se oculta ese botón acá. Ver
+  // lib/useDatosAgenda.ts para el mismo razonamiento aplicado a Realtime.
+  const [invitado, setInvitado] = useState(false)
 
   const [materiaId, setMateriaId] = useState<string>(MATERIA_NUEVA)
   const [nuevaMateria, setNuevaMateria] = useState('')
@@ -78,10 +84,11 @@ export default function HorarioPage() {
   useEffect(() => {
     let activo = true
     ;(async () => {
-      const [mData, hData] = await Promise.all([cargarMaterias(), cargarHorario()])
+      const [mData, hData, esInv] = await Promise.all([cargarMaterias(), cargarHorario(), esInvitado()])
       if (!activo) return
       setMaterias(mData)
       setBloques(hData)
+      setInvitado(esInv)
       setCargando(false)
     })()
     return () => {
@@ -94,8 +101,9 @@ export default function HorarioPage() {
   // funciones de recarga tras cada mutación), así que se wirea acá aparte.
   // No necesita `tareas`. Mismo criterio de idempotencia que
   // lib/useDatosAgenda.ts: el eco de una escritura propia no duplica nada.
-  useRealtimeSync<Materia>('materias', !cargando, (evento) => setMaterias((actuales) => reconciliar(actuales, evento)))
-  useRealtimeSync<FilaHorario>('horario', !cargando, (evento) =>
+  // `&& !invitado`: sin sesión no hay nada que Realtime pueda suscribir.
+  useRealtimeSync<Materia>('materias', !cargando && !invitado, (evento) => setMaterias((actuales) => reconciliar(actuales, evento)))
+  useRealtimeSync<FilaHorario>('horario', !cargando && !invitado, (evento) =>
     setBloques((actuales) => reconciliar(actuales, { tipo: evento.tipo, fila: filaABloqueHorario(evento.fila) }))
   )
 
@@ -328,6 +336,7 @@ export default function HorarioPage() {
   // scroll horizontal por dentro, así que esto no le quita nada.
   return (
     <main className="relative z-10 min-h-screen px-6 py-16 pb-28 max-w-6xl mx-auto lg:pl-24 overflow-x-hidden">
+      <BannerInvitado />
       <div className="mb-10">
         <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wide text-coral mb-4">
           <CalendarClock size={12} />
@@ -338,16 +347,22 @@ export default function HorarioPage() {
           Guarda qué materia se dicta cada día — la IA lo usa para poner la fecha automáticamente cuando creas una tarea sin decir cuándo es.
         </p>
 
-        <input ref={inputFotoRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={elegirFoto} className="hidden" />
+        {/* Importar por foto exige sesión (lib/storage.ts la requiere
+            explícitamente, y sin ella devuelve "Tu sesión expiró..." — un
+            mensaje engañoso para alguien que nunca inició sesión). Se
+            oculta entero para invitado en vez de dejar que falle. */}
+        {!invitado && <input ref={inputFotoRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={elegirFoto} className="hidden" />}
         <div className="flex flex-wrap items-center gap-2.5 mt-5">
-          <button
-            onClick={() => inputFotoRef.current?.click()}
-            disabled={analizando}
-            className="inline-flex items-center gap-2 text-xs font-semibold px-5 py-2.5 rounded-full bg-panel-glass backdrop-blur-md text-paper hover:bg-panel-2 transition disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {analizando ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
-            {analizando ? 'Leyendo la foto…' : 'Importar desde una foto'}
-          </button>
+          {!invitado && (
+            <button
+              onClick={() => inputFotoRef.current?.click()}
+              disabled={analizando}
+              className="inline-flex items-center gap-2 text-xs font-semibold px-5 py-2.5 rounded-full bg-panel-glass backdrop-blur-md text-paper hover:bg-panel-2 transition disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {analizando ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
+              {analizando ? 'Leyendo la foto…' : 'Importar desde una foto'}
+            </button>
+          )}
           {bloques.length > 0 && (
             <BotonConfirmacion
               onConfirmar={limpiarHorario}
@@ -435,7 +450,7 @@ export default function HorarioPage() {
         </div>
       </BorderGlow>
 
-      <GrillaSemanal bloques={bloques} materias={materias} cargando={cargando} onQuitar={quitarBloque} onEditar={setBloqueEditando} />
+      <GrillaSemanal bloques={bloques} materias={materias} cargando={cargando} onQuitar={quitarBloque} onEditar={setBloqueEditando} invitado={invitado} />
 
       <EditarBloqueModal
         bloque={bloqueEditando}

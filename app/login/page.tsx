@@ -1,11 +1,13 @@
 'use client'
 
 import { Suspense, useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
 import { Sparkles, Loader2, Mail, CheckCircle2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useToast } from '@/lib/toast'
+import { activarModoInvitado } from '@/lib/invitado/estado'
+import { RUTA_AGENDA } from '@/lib/rutas'
 import BorderGlow from '@/components/reactbits/BorderGlow'
 
 // Sprint Auth / Fase 6 — pantalla única de entrada.
@@ -39,6 +41,7 @@ function IconoGoogle() {
 }
 
 function ContenidoLogin() {
+  const router = useRouter()
   const params = useSearchParams()
   const volverA = params.get('volverA')
   const errorUrl = params.get('error')
@@ -118,6 +121,15 @@ function ContenidoLogin() {
       return
     }
     setEnlaceEnviado(true)
+  }
+
+  // Modo invitado — datos en localStorage, sin cuenta. `activarModoInvitado()`
+  // es el ÚNICO lugar que crea la marca de invitado (lib/invitado/estado.ts);
+  // ninguna función de datos la crea implícitamente, así que solo alguien
+  // que pasó por acá entra en ese camino.
+  function continuarComoInvitado() {
+    activarModoInvitado()
+    router.push(RUTA_AGENDA)
   }
 
   const mensaje = error ?? errorUrl
@@ -237,6 +249,13 @@ function ContenidoLogin() {
         <p className="text-muted/70 text-[11px] text-center mt-6 leading-relaxed">
           Al entrar, se crea tu cuenta si es la primera vez.
         </p>
+
+        <button
+          onClick={continuarComoInvitado}
+          className="block mx-auto mt-3 text-muted text-xs underline decoration-dotted underline-offset-4 hover:text-paper transition"
+        >
+          Continuar como invitado — tus datos quedan en este dispositivo
+        </button>
       </motion.div>
     </main>
   )

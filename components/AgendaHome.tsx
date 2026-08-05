@@ -14,6 +14,7 @@ import PremiumSelect from '@/components/ui/PremiumSelect'
 import DayDetailModal from '@/components/ui/DayDetailModal'
 import NotificationBell from '@/components/ui/NotificationBell'
 import { IconoMateria } from '@/components/ui/iconosMateria'
+import BannerInvitado from '@/components/invitado/BannerInvitado'
 
 // Sprint Home — CORRECCIÓN DE ALCANCE. El sprint anterior había fusionado el
 // pulso del día + informes de rendimiento DENTRO de esta pantalla; no era lo
@@ -43,7 +44,7 @@ export default function AgendaHome() {
   // que sincronizar a mano. Tras cada mutación se llama a `recargar()`, que
   // el hook expone y que actualiza este mismo estado — mismo resultado que
   // el `cargarDatos()` de antes, sin mantener dos copias del mismo dato.
-  const { materias, tareas, horario, recargar } = useDatosAgenda()
+  const { materias, tareas, horario, cargando, invitado, recargar } = useDatosAgenda()
   const [estadoFiltro, setEstadoFiltro] = useState('todas')
   const [materiaFiltro, setMateriaFiltro] = useState('todas')
   const [diaModal, setDiaModal] = useState<string | null>(null)
@@ -133,6 +134,7 @@ export default function AgendaHome() {
 
   return (
     <main className="relative z-10 min-h-screen px-6 lg:pl-24 py-12 pb-28 max-w-6xl mx-auto">
+      <BannerInvitado />
       <header className="flex items-start justify-between mb-8 gap-4 flex-wrap">
         <div>
           <h1 className="font-display text-[32px] font-semibold text-paper tracking-tight mb-1">Agenda</h1>
@@ -145,11 +147,22 @@ export default function AgendaHome() {
         </div>
 
         <div className="text-right">
-          <p className="text-paper text-sm font-medium mb-0.5">{saludo()}, Samuel 👋</p>
+          {/* Sin sesión no hay a quién saludar por nombre — "Samuel" es el
+              único usuario real de hoy, hardcodeado desde antes de que
+              existiera modo invitado (deuda técnica preexistente, ver
+              PROJECT_CONTEXT.md); un invitado nunca debe verlo. */}
+          <p className="text-paper text-sm font-medium mb-0.5">{invitado ? saludo() : `${saludo()}, Samuel 👋`}</p>
           <p className="text-muted text-xs mb-2">
             {tareasHoy > 0 ? `Tienes ${tareasHoy} tarea${tareasHoy === 1 ? '' : 's'} pendiente${tareasHoy === 1 ? '' : 's'} para hoy.` : 'No tienes tareas para hoy 🎉'}
           </p>
-          <NotificationBell materias={materias} />
+          {/* Sin sesión, /api/notificaciones 401 en silencio (campana vacía,
+              sin error visible) — pero seguiría disparando una llamada de
+              red inútil en cada carga. Se oculta entero para invitado.
+              `!cargando &&`: `invitado` empieza en `false` hasta que el
+              efecto de carga lo resuelve — sin este chequeo, la campana
+              montaría de todos modos en ese primer instante y dispararía
+              el fetch igual, antes de desmontarse. */}
+          {!cargando && !invitado && <NotificationBell materias={materias} />}
         </div>
       </header>
 

@@ -11,6 +11,7 @@ import NavDock from "@/components/NavDock";
 import ThemeToggle from "@/components/ThemeToggle";
 import AppSidebar from "@/components/AppSidebar";
 import AjustesModal from "@/components/ajustes/AjustesModal";
+import SincronizadorInvitado from "@/components/invitado/SincronizadorInvitado";
 import ModeTransition from "@/components/ModeTransition";
 import { getUserIdOpcional } from "@/lib/server/usuario";
 import { supabaseServer } from "@/lib/server/supabaseServer";
@@ -75,6 +76,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                       sesión que la navegación — sin sesión no hay ajustes que
                       mostrar. */}
                   {haySesion && <AjustesModal />}
+                  {/* Modo invitado — si hay datos locales de una sesión de
+                      invitado previa, se sincronizan solos apenas hay sesión
+                      real. Cubre cualquier pantalla autenticada, no solo
+                      /bienvenida (ver components/invitado/SincronizadorInvitado.tsx). */}
+                  {haySesion && <SincronizadorInvitado />}
                 </AjustesModalProvider>
               </ImmersiveProvider>
             </PreferenciasProvider>
