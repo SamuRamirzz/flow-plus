@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { clienteDeSesion } from '@/lib/server/sesion'
+import { guardarVinculacionGoogle } from '@/lib/server/integracionGoogle'
 import { destinoSeguro } from '@/lib/onboarding/saludo'
 import { RUTA_APP } from '@/lib/rutas'
 
@@ -37,11 +38,23 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await clienteDeSesion()
-  const { error } = await supabase.auth.exchangeCodeForSession(code)
+  const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
   if (error) {
     return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(error.message)}`)
   }
+
+  // Sprint Archivos / Fase 0 — ESTE es el único momento en que existe el
+  // `provider_refresh_token` de Google (el que da acceso a su Drive): llega en
+  // esta respuesta y Supabase no lo persiste en ningún sitio — verificado
+  // contra information_schema, `auth.identities` no tiene dónde. Hasta ahora
+  // este `data` se descartaba y el token se perdía en cada login.
+  //
+  // NUNCA lanza y nunca bloquea el login (try/catch total + límite de tiempo
+  // dentro, mismo criterio defensivo que resolverIcono/resolverCamposExamen).
+  // Si falla, el usuario entra igual y se autorepara en el siguiente login,
+  // porque /login pide `prompt: 'consent'` siempre.
+  await guardarVinculacionGoogle(data.session)
 
   // `volverA` es la ruta que el usuario intentaba ver cuando el proxy lo mandó
   // al login. Se valida que sea una ruta interna: sin esto, un `volverA` con
