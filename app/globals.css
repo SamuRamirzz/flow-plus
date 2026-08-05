@@ -1,26 +1,160 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --c-ink: #0B0D11;
+  --c-panel: #14161C;
+  --c-panel-2: #1B1E26;
+  --c-panel-glass: rgba(20, 22, 28, 0.55);
+  --c-line: #262932;
+  --c-paper: #F3F1EC;
+  --c-muted: #8B8F9B;
+  --c-danger: #FF5470;
+  --c-success: #34D399;
+}
+
+[data-theme="light"] {
+  --c-ink: #F7F5FB;
+  --c-panel: #FFFFFF;
+  --c-panel-2: #F1EEF9;
+  --c-panel-glass: rgba(255, 255, 255, 0.6);
+  --c-line: #E4E0F0;
+  --c-paper: #1C1B22;
+  --c-muted: #726E82;
+  --c-danger: #E5484D;
+  --c-success: #16A34A;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-ink: var(--c-ink);
+  --color-panel: var(--c-panel);
+  --color-panel-2: var(--c-panel-2);
+  --color-panel-glass: var(--c-panel-glass);
+  --color-line: var(--c-line);
+  --color-coral: #FF6B4D;
+  --color-paper: var(--c-paper);
+  --color-muted: var(--c-muted);
+  --color-danger: var(--c-danger);
+  --color-success: var(--c-success);
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-body);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+/* DIRECTIVA DE DISEÑO: cero bordes duros en absolutamente todo, para
+   siempre. Esto anula cualquier "border" que exista hoy o que se agregue
+   por error en el futuro, en cualquier componente. Los paneles se
+   distinguen por su fondo de vidrio (blur) y su sombra, no por una línea. */
+*, *::before, *::after {
+  border-width: 0 !important;
+}
+
+.border-glow-inner {
+  overflow: visible !important;
+}
+
+.dock-glass {
+  background-color: var(--color-panel-glass) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.dock-item {
+  background-color: var(--color-panel) !important;
+  color: var(--color-paper);
+}
+
+.dock-label {
+  background-color: var(--color-panel) !important;
+  color: var(--color-paper) !important;
+}
+
+/* ==========================================================================
+   Transición de modo Agenda ⇄ IA (Sprint 4)
+
+   Usa la View Transitions API nativa vía <ViewTransition> de React
+   (components/ModeTransition.tsx envuelve {children} en app/layout.tsx
+   con name="app-mode"; SidebarLink y NavDock etiquetan cada navegación
+   con transitionTypes=['to-ai'|'to-agenda']). El navegador ya garantiza
+   que ambos estados coexistan como snapshots durante la animación — todo
+   lo de aquí abajo es solo la coreografía: qué transform/opacity/blur le
+   toca a cada snapshot, y cuándo. Todo en transform/opacity/filter,
+   nunca en propiedades que disparan layout, para mantener 60fps.
+   ========================================================================== */
+
+::view-transition-old(.to-ai) {
+  animation: 360ms var(--mode-ease) 120ms both mode-agenda-recede;
+}
+::view-transition-new(.to-ai) {
+  animation: 400ms var(--mode-ease) 220ms both mode-ai-arrive;
+}
+::view-transition-old(.to-agenda) {
+  animation: 400ms var(--mode-ease) 120ms both mode-ai-retreat;
+}
+::view-transition-new(.to-agenda) {
+  animation: 360ms var(--mode-ease) 220ms both mode-agenda-return;
+}
+
+:root {
+  --mode-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes mode-agenda-recede {
+  from { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+  to   { transform: translateY(-120px) scale(0.985); opacity: 0; filter: blur(20px); }
+}
+@keyframes mode-ai-arrive {
+  from { transform: translateY(100%) scale(0.985); opacity: 0; filter: blur(20px); }
+  to   { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+}
+@keyframes mode-ai-retreat {
+  from { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+  to   { transform: translateY(100%) scale(0.985); opacity: 0; filter: blur(20px); }
+}
+@keyframes mode-agenda-return {
+  from { transform: translateY(-120px) scale(0.985); opacity: 0; filter: blur(20px); }
+  to   { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+}
+
+/* Crossfade de fondos (LightRays ⇄ DotField) sincronizado con la misma
+   ventana de tiempo que el swap de contenido de arriba — sin flash, sin
+   corte. El glow ambiental de DotFieldBackground usa su propio fade,
+   más lento y con más delay, para que se sienta como que "se enciende"
+   después de que ya aparecieron los puntos, no junto con ellos. */
+::view-transition-old(.bg-fade-out) {
+  animation: 400ms ease-out both fade-out;
+}
+::view-transition-new(.bg-fade-in) {
+  animation: 450ms ease-in 150ms both fade-in;
+}
+::view-transition-old(.bg-glow-fade-out) {
+  animation: 350ms ease-out both fade-out;
+}
+::view-transition-new(.bg-glow-fade-in) {
+  animation: 550ms ease-in 250ms both fade-in;
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+  }
 }

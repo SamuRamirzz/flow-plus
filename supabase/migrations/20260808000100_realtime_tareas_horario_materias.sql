@@ -1,0 +1,12 @@
+-- Sincronización en tiempo real entre dispositivos — habilita las 3 tablas
+-- de dominio para postgres_changes. Verificado contra pg_publication_tables
+-- que `supabase_realtime` no tenía NINGUNA tabla habilitada hasta ahora —
+-- sin esto, ninguna suscripción de lib/useRealtimeSync.ts recibiría nada,
+-- con o sin RLS (la RLS ya cerrada en 20260804000000_rls_propietario.sql es
+-- la segunda capa, esta migración es la primera: sin publicación, ni
+-- siquiera hay stream que filtrar).
+--
+-- Aditivo puro: no cambia ninguna columna, política ni permiso — solo
+-- agrega estas 3 tablas a la publicación lógica que Supabase Realtime ya
+-- escucha por defecto.
+alter publication supabase_realtime add table public.tareas, public.horario, public.materias;

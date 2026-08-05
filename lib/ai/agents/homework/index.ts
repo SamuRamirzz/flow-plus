@@ -1,0 +1,5 @@
+export { homeworkAgent } from './HomeworkAgent'
+export { HOMEWORK_AGENT_ID, HOMEWORK_AGENT_TRIGGER_EVENT } from './types'
+export type { DetectedTask, HomeworkAgentOutput, HomeworkPriority, HomeworkTaskType, TipoRespuestaHomework } from './types'
+export { HOMEWORK_OUTPUT_SCHEMA, HomeworkOutputParser } from './schema'
+export type { HomeworkParsedOutput } from './schema'

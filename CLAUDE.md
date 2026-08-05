@@ -1,1 +1,3 @@
 @AGENTS.md
+@PROJECT_CONTEXT.md
+@ROADMAP.md
