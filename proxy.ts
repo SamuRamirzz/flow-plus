@@ -145,9 +145,26 @@ export async function proxy(request: NextRequest) {
   }
 
   // Con sesión en /login no tiene sentido quedarse ahí.
+  //
+  // 🐛 Bug real (2026-08-05): esto mandaba a `/` (la landing pública), no a
+  // la app. Eso convertía cualquier llegada accidental a /login CON sesión
+  // —incluido el bucle real reportado: /bienvenida no ve la sesión todavía
+  // (por el motivo que sea) y redirige a /login, que un instante después SÍ
+  // la ve— en un callejón sin salida: el usuario quedaba varado en la
+  // landing, con la sesión ya reconocida (el botón decía "Ir a mi agenda")
+  // pero SIN pasar nunca por /bienvenida, así que ni el saludo ni el gate de
+  // onboarding/completar-perfil se disparaban — tenía que hacer clic manual.
+  // Redirigir a /bienvenida en vez de `/` cierra ese agujero: es el MISMO
+  // punto de decisión que ya usa un login fresco (ver app/auth/callback),
+  // así que cualquier camino que termine en "sesión + /login" se resuelve
+  // igual (saltar directo si ya completó todo, mostrar el saludo/onboarding
+  // si no). No hay riesgo de bucle infinito: si /bienvenida vuelve a no ver
+  // la sesión y rebota a /login, este mismo redirect ya refrescó las
+  // cookies (`redirigirConCookies` copia lo que `getClaims()` haya
+  // renovado), así que cada vuelta deja el estado más consistente, no menos.
   if (haySesion && pathname === '/login') {
     const url = request.nextUrl.clone()
-    url.pathname = '/'
+    url.pathname = '/bienvenida'
     url.search = ''
     return redirigirConCookies(url, response)
   }
