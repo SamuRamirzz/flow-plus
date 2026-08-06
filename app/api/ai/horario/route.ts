@@ -5,6 +5,7 @@ import { CLASS_SCHEDULE_AGENT_ID, type ClassScheduleAgentOutput } from '@/lib/ai
 import { requerirUsuario } from '@/lib/server/usuario'
 import { supabaseServer } from '@/lib/server/supabaseServer'
 import { cargarHorarioServidor } from '@/lib/server/horario'
+import { esRutaDelUsuario } from '@/lib/server/rutaStorage'
 import { diffHorario } from '@/lib/horario/diff'
 import { analizarHorarioSchema } from '@/lib/api/schemas'
 import { ok, errorJson, errorDeValidacion } from '@/lib/server/respuestas'
@@ -34,6 +35,16 @@ export async function POST(request: Request) {
 
   const userId = auth.userId
   const { ruta } = parsed.data
+
+  // ⚠️ IDOR corregido — `supabaseServer` usa service_role y SALTA las
+  // políticas RLS de Storage (que solo protegen el camino del navegador con
+  // la clave anónima). Sin este chequeo, cualquier sesión válida podía leer
+  // la foto de horario de OTRO usuario adivinando o conociendo su ruta. Ver
+  // lib/server/rutaStorage.ts para el detalle. Se rechaza ANTES de tocar
+  // Storage — nada se procesa si la ruta no es del usuario.
+  if (!esRutaDelUsuario(ruta, userId)) {
+    return errorJson('La ruta de la imagen no pertenece a tu sesión', 403)
+  }
 
   // La imagen viaja por Storage, no en el body: una foto de celular pesa
   // 3-8MB y mandarla como base64 en JSON la infla otro ~33% y se come el

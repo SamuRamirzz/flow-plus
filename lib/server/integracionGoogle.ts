@@ -259,6 +259,78 @@ export async function obtenerAccessTokenValido(userId: string): Promise<AccessTo
   }
 }
 
+/**
+ * Sprint Archivos / Fase 2. Invalida el access token cacheado sin tocar el
+ * refresh token — para cuando Drive devuelve 401 A MITAD DE UNA OPERACIÓN
+ * (el token estaba cacheado como vigente pero Google ya no lo acepta, p. ej.
+ * el usuario revocó el acceso hace un segundo). La siguiente llamada a
+ * `obtenerAccessTokenValido()` ve `access_token_cifrado` en null y refresca
+ * de una, en vez de esperar a que `access_token_expira_en` venza solo.
+ *
+ * Nunca lanza — invalidar la caché es una optimización, no una operación
+ * crítica; si falla, el peor caso es un refresco de más en la próxima
+ * llamada, no un dato corrupto.
+ */
+export async function invalidarAccessTokenCacheado(userId: string): Promise<void> {
+  try {
+    const { error } = await supabaseServer
+      .from(TABLA)
+      .update({ access_token_cifrado: null, access_token_expira_en: null, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('proveedor', PROVEEDOR)
+    if (error) console.error('[integracionGoogle] no se pudo invalidar el access token cacheado:', error.message)
+  } catch (error) {
+    console.error('[integracionGoogle] excepción al invalidar el access token cacheado:', error)
+  }
+}
+
+/**
+ * Sprint Archivos / Fase 6. Desvincula Google Drive: intenta revocar el
+ * refresh token del lado de Google (best-effort — reconectar siempre pasa
+ * por `prompt=consent`, que emite un token nuevo sin importar el estado del
+ * viejo) y borra la fila de `integraciones_externas`. NO toca `archivos`:
+ * esas filas son el historial del usuario en Flow+, independiente de si
+ * Drive sigue conectado.
+ *
+ * Devuelve `true` si había una vinculación para borrar, `false` si no había
+ * nada que hacer — para que el endpoint pueda distinguir 200 de 404.
+ */
+export async function desvincularGoogle(userId: string): Promise<boolean> {
+  const { data } = await supabaseServer
+    .from(TABLA)
+    .select('refresh_token_cifrado')
+    .eq('user_id', userId)
+    .eq('proveedor', PROVEEDOR)
+    .maybeSingle<{ refresh_token_cifrado: string | null }>()
+
+  if (!data) return false
+
+  if (data.refresh_token_cifrado) {
+    try {
+      const claves = clavesCifrado()
+      const refreshToken = descifrar(data.refresh_token_cifrado, contextoRefresh(userId), claves)
+      await fetch('https://oauth2.googleapis.com/revoke', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token: refreshToken }).toString(),
+        signal: AbortSignal.timeout(LIMITE_REFRESCO_MS),
+      })
+    } catch (error) {
+      // Best-effort: si Google no responde o el descifrado falla, se borra
+      // la fila igual. Un grant que Google no llegó a revocar no es un
+      // problema real — el usuario ya no le dio a Flow+ ningún token válido.
+      console.warn('[integracionGoogle] no se pudo revocar el token en Google (se desvincula igual):', error instanceof Error ? error.message : error)
+    }
+  }
+
+  const { error } = await supabaseServer.from(TABLA).delete().eq('user_id', userId).eq('proveedor', PROVEEDOR)
+  if (error) {
+    console.error('[integracionGoogle] no se pudo borrar la vinculación:', error.message)
+    throw error
+  }
+  return true
+}
+
 async function registrarUltimoError(userId: string, detalle: string): Promise<void> {
   const { error } = await supabaseServer
     .from(TABLA)
