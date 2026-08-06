@@ -103,7 +103,12 @@ export default function PoliticaPrivacidadPage() {
                 Archivos que subís (PDFs, imágenes, documentos) y, si los analizás con IA, el resumen, tipo de documento y tareas que la
                 IA detectó en ellos.
               </Item>
+              <Item>
+                La fecha y hora en que abriste o descargaste cada archivo por última vez — es lo que muestra la columna “Última apertura”
+                en la sección Archivos. No registramos cuántas veces lo abriste ni desde dónde.
+              </Item>
               <Item>El historial de tus conversaciones con el asistente de IA, incluidos los resúmenes que se generan de ellas.</Item>
+              <Item>Las preguntas que le hacés a la IA sobre un archivo concreto, y sus respuestas, que se guardan como un hilo asociado a ese archivo.</Item>
             </Lista>
 
             <Sub>Datos de tu cuenta de Google (solo si conectás Google Drive)</Sub>
@@ -291,6 +296,11 @@ export default function PoliticaPrivacidadPage() {
               <Item>El historial de conversaciones con la IA se recorta automáticamente a los últimos 50 mensajes por conversación.</Item>
               <Item>El registro técnico de ejecuciones de IA (sección 02) se conserva por tiempo indefinido hoy, con fines de auditoría técnica — esto puede cambiar en el futuro hacia una política de expiración automática.</Item>
               <Item>El token de tu cuenta de Google se conserva hasta que desconectás Google Drive (algo que podés hacer vos mismo en cualquier momento — ver sección siguiente).</Item>
+              <Item>
+                Los archivos que subís se conservan hasta que vos los borrés. Al borrar un archivo desde Flow+ también se elimina de tu
+                Google Drive, junto con su resumen de IA, sus tareas detectadas y el hilo de preguntas que hayas tenido sobre él.
+              </Item>
+              <Item>Si desconectás Google Drive, tus archivos ya subidos <Fuerte>se quedan en tu Drive</Fuerte> — son tuyos; Flow+ solo pierde el acceso a ellos.</Item>
             </Lista>
           </section>
 
@@ -313,8 +323,9 @@ export default function PoliticaPrivacidadPage() {
             <Destacado icono={AlertTriangle} titulo="Con honestidad sobre el estado actual" tono="pendiente">
               Hoy podés ejercer estos derechos escribiéndonos directamente (sección 15) y los atendemos manualmente. <Fuerte>Todavía no
               existe</Fuerte> un botón de autoservicio dentro de la app para &ldquo;borrar mi cuenta&rdquo; ni para &ldquo;exportar todos mis datos&rdquo; — es una
-              función que reconocemos como pendiente y que planeamos construir. La única excepción ya disponible como autoservicio real es{' '}
-              <Fuerte>desconectar tu cuenta de Google Drive</Fuerte>, que podés hacer vos mismo en cualquier momento desde Ajustes.
+              función que reconocemos como pendiente y que planeamos construir. Lo que <Fuerte>sí</Fuerte> podés hacer vos mismo, en
+              cualquier momento y sin escribirnos: <Fuerte>borrar cualquier archivo</Fuerte> (desde la sección Archivos — se elimina tanto
+              de Flow+ como de tu Drive) y <Fuerte>desconectar tu cuenta de Google Drive</Fuerte> (desde Ajustes → Perfil).
             </Destacado>
           </section>
 

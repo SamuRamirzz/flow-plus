@@ -140,8 +140,18 @@ export default function TerminosServicioPage() {
             <Destacado icono={FolderOpen} titulo="Un permiso acotado, y reversible en cualquier momento">
               Si conectás Google Drive, Flow+ pide el permiso <Fuerte>drive.file</Fuerte> — solo puede ver y modificar los archivos que la
               propia app crea dentro de una carpeta &ldquo;Flow+&rdquo; en tu Drive, nunca el resto de tus archivos. Podés desconectar Google Drive
-              cuando quieras desde Ajustes; al hacerlo, los archivos que ya se habían subido <Fuerte>se quedan en tu Drive</Fuerte> (son
-              tuyos), Flow+ simplemente pierde el acceso a ellos.
+              cuando quieras desde <Fuerte>Ajustes → Perfil</Fuerte>; al hacerlo, los archivos que ya se habían subido{' '}
+              <Fuerte>se quedan en tu Drive</Fuerte> (son tuyos), Flow+ simplemente pierde el acceso a ellos.
+            </Destacado>
+            <P>
+              Como los archivos viven en tu Drive y no en servidores nuestros, el espacio disponible es el de tu propia cuenta de Google, no
+              una cuota que Flow+ te asigne. Si tu Drive se llena, no vas a poder subir archivos nuevos hasta que liberes espacio ahí.
+            </P>
+            <Destacado icono={FolderOpen} titulo="Sobre el análisis de tus archivos con IA">
+              Cuando pedís analizar un archivo, su contenido se envía a Gemini para generar un resumen y detectar tareas. Ese análisis es{' '}
+              <Fuerte>opcional y lo activás vos</Fuerte> al subir el archivo o desde el panel de detalle — subir un archivo sin analizarlo
+              no lo manda a ningún modelo de IA. Algunos formatos (como .docx) no se pueden analizar, y hay un límite de tamaño; en esos
+              casos la app te lo dice en vez de intentarlo igual.
             </Destacado>
           </section>
 

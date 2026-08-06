@@ -4,6 +4,7 @@ import { User, Check, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { apiPatch } from '@/lib/api/cliente'
 import { useToast } from '@/lib/toast'
+import BloqueGoogleDrive from './BloqueGoogleDrive'
 
 type Claims = { email?: string; phone?: string; app_metadata?: { provider?: string }; user_metadata?: { full_name?: string; name?: string } }
 
@@ -129,6 +130,11 @@ export default function CategoriaPerfil() {
         </div>
         <span className="text-xs font-mono text-muted bg-panel-2/60 rounded-full px-3 py-1.5">{metodoLogin(claims.app_metadata?.provider)}</span>
       </div>
+
+      {/* La cuenta de Google vinculada es parte de la identidad del usuario
+          —es la misma con la que inicia sesión—, así que vive acá y no en una
+          categoría aparte. */}
+      <BloqueGoogleDrive />
     </div>
   )
 }

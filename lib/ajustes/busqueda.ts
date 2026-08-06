@@ -21,14 +21,14 @@ function normalizar(texto: string): string {
 // Vive acá (y no dentro del componente) para que la búsqueda sea una
 // función pura testeable, mismo criterio que el resto de lib/.
 const PALABRAS_CLAVE: Record<CategoriaAjustesId, string[]> = {
-  perfil: ['perfil', 'nombre', 'cuenta', 'usuario', 'correo', 'email', 'avatar', 'foto', 'google'],
+  perfil: ['perfil', 'nombre', 'cuenta', 'usuario', 'correo', 'email', 'avatar', 'foto', 'google', 'google drive', 'drive', 'almacenamiento', 'espacio', 'nube', 'vincular', 'desvincular'],
   apariencia: ['apariencia', 'tema', 'oscuro', 'claro', 'modo', 'color', 'fondo', 'noche', 'dia'],
   'fecha-hora': ['fecha', 'hora', 'zona horaria', 'reloj', 'formato', '12h', '24h', 'huso', 'utc'],
   notificaciones: ['notificaciones', 'avisos', 'recordatorios', 'alertas', 'no molestar', 'silencio', 'limite', 'tope'],
-  'google-drive': ['google drive', 'drive', 'archivos', 'almacenamiento', 'espacio', 'nube', 'vincular', 'desvincular', 'sincronizar'],
-  // 'drive'/'archivos' salen de acá: ya no son "próximamente", tienen su
-  // propia categoría con estado real — dejarlas duplicadas haría que buscar
-  // "drive" devolviera dos resultados, uno de ellos falso.
+  // 'drive'/'archivos' salen de `proximamente`: ya no son funcionalidad en
+  // camino. Viven en `perfil`, que es donde está el bloque de Google Drive —
+  // dejarlas en las dos haría que buscar "drive" devolviera un resultado
+  // falso que no lleva a ningún lado.
   proximamente: ['proximamente', 'futuro', 'pronto', 'whatsapp', 'historial', 'estudio'],
   'cerrar-sesion': ['cerrar sesion', 'salir', 'logout', 'desconectar', 'sesion'],
 }
