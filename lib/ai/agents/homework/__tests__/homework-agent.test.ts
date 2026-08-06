@@ -207,7 +207,8 @@ describe('HomeworkAgent usa el contexto real (Sprint 9)', () => {
   }
 
   it('declara los scopes que necesita', () => {
-    expect(homeworkAgent.definition.contextScopes).toEqual(['schedule', 'identity'])
+    // Sprint Archivos / Fase 5.3 agregó 'conversationHistory'.
+    expect(homeworkAgent.definition.contextScopes).toEqual(['schedule', 'identity', 'conversationHistory'])
   })
 
   it('usa context.schedule.hoy como fecha de referencia, no el reloj del proceso', async () => {

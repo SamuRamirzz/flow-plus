@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { resolverOperaciones } from '../resolver'
-import type { OperacionRaw } from '../schema'
+import { resolverOperaciones, resolverNotas } from '../resolver'
+import type { OperacionRaw, OperacionCrearNotaRaw } from '../schema'
 import type { TareaContexto } from '../types'
 
 const MATE: TareaContexto = { id: 'tarea-mate', titulo: 'Examen de matemáticas', materia: 'Matemáticas', fecha: '2026-07-30', completada: false }
@@ -135,5 +135,82 @@ describe('resolverOperaciones — instrucciones mixtas', () => {
     expect(ops).toHaveLength(2)
     expect(ops[0].tipo).toBe('crear')
     expect(ops[1].tipo).toBe('borrar')
+  })
+})
+
+// Sprint Archivos / Fase 4.2 — crear_nota reusa resolverCandidatos (la misma
+// lógica que modificar/borrar/ambiguo), pero resuelve a un tipo separado
+// (OperacionCrearNotaResuelta) que NUNCA aparece en el array que devuelve
+// resolverOperaciones() — ese array es exactamente lo que components/ai/*
+// ya consume en producción, y no debe cambiar de forma por este sprint.
+function notaRaw(overrides: Partial<OperacionCrearNotaRaw> = {}): OperacionRaw {
+  return {
+    tipo: 'crear_nota',
+    descripcion: 'la de matemáticas',
+    indiceObjetivo: null,
+    indicesCandidatos: [],
+    contenidoNota: 'faltó resolver el punto 3',
+    ...overrides,
+  }
+}
+
+describe('resolverOperaciones — crear_nota queda EXCLUIDO del array público', () => {
+  it('un crear_nota resuelto no aparece en absoluto en resolverOperaciones()', () => {
+    const ops = resolverOperaciones([notaRaw({ indiceObjetivo: 0 })], tareasExistentes)
+    expect(ops).toHaveLength(0)
+  })
+
+  it('crear_nota mezclado con una operación real: solo la real aparece en el array público', () => {
+    const ops = resolverOperaciones(
+      [notaRaw({ indiceObjetivo: 0 }), refRaw({ tipo: 'borrar', indiceObjetivo: 2 })],
+      tareasExistentes
+    )
+    expect(ops).toHaveLength(1)
+    expect(ops[0].tipo).toBe('borrar')
+  })
+})
+
+describe('resolverNotas', () => {
+  it('índice único válido → resuelto contra la tarea real', () => {
+    const [nota] = resolverNotas([notaRaw({ indiceObjetivo: 0, contenidoNota: 'faltó el punto 3' })], tareasExistentes)
+    expect(nota.estado).toBe('resuelto')
+    if (nota.estado === 'resuelto') {
+      expect(nota.tareaId).toBe(MATE.id)
+      expect(nota.contenidoNota).toBe('faltó el punto 3')
+    }
+  })
+
+  it('>1 candidato válido → ambiguo, con la lista real de candidatos (mismo criterio defensivo que modificar/borrar)', () => {
+    const [nota] = resolverNotas([notaRaw({ indicesCandidatos: [0, 1] })], tareasExistentes)
+    expect(nota.estado).toBe('ambiguo')
+    if (nota.estado === 'ambiguo') {
+      expect(nota.candidatos).toEqual([MATE, MATE2])
+      expect(nota.contenidoNota).toBe('faltó resolver el punto 3')
+    }
+  })
+
+  it('índice alucinado (fuera de rango) → sin_coincidencias, nunca crea la nota en la tarea equivocada', () => {
+    const [nota] = resolverNotas([notaRaw({ indiceObjetivo: 99 })], tareasExistentes)
+    expect(nota.estado).toBe('sin_coincidencias')
+  })
+
+  it('sin ningún índice ni candidato → sin_coincidencias', () => {
+    const [nota] = resolverNotas([notaRaw()], tareasExistentes)
+    expect(nota.estado).toBe('sin_coincidencias')
+  })
+
+  it('ignora por completo las operaciones que no son crear_nota', () => {
+    const notas = resolverNotas([crearRaw(), refRaw({ tipo: 'borrar', indiceObjetivo: 0 })], tareasExistentes)
+    expect(notas).toHaveLength(0)
+  })
+
+  it('cada nota resuelta tiene un id propio', () => {
+    const [n1, n2] = resolverNotas(
+      [notaRaw({ indiceObjetivo: 0 }), notaRaw({ indiceObjetivo: 2, contenidoNota: 'otra nota' })],
+      tareasExistentes
+    )
+    expect(n1.id).toBeTruthy()
+    expect(n2.id).toBeTruthy()
+    expect(n1.id).not.toBe(n2.id)
   })
 })

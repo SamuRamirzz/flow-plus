@@ -5,6 +5,8 @@ import { classScheduleAgent } from './agents/classSchedule'
 import { iconoMateriaAgent } from './agents/iconoMateria'
 import { examAgent } from './agents/exam'
 import { calendarAgent } from './agents/calendar'
+import { resumenConversacionAgent } from './agents/resumenConversacion'
+import { analisisArchivoAgent, preguntaArchivoAgent } from './agents/analisisArchivo'
 
 let registered = false
 
@@ -42,5 +44,18 @@ export function registerAgents(): void {
   }
   if (!aiOrchestrator.getAgent(calendarAgent.definition.id)) {
     aiOrchestrator.registerAgent(calendarAgent)
+  }
+  // Sprint Archivos / Fase 5.1 — primer agente schema-free del proyecto
+  // (provider.send() sin outputSchema, ver el comentario en su definición).
+  if (!aiOrchestrator.getAgent(resumenConversacionAgent.definition.id)) {
+    aiOrchestrator.registerAgent(resumenConversacionAgent)
+  }
+  // Sprint Archivos / Fase 7 — analiza un archivo ya subido a Drive, y
+  // responde preguntas puntuales sobre él.
+  if (!aiOrchestrator.getAgent(analisisArchivoAgent.definition.id)) {
+    aiOrchestrator.registerAgent(analisisArchivoAgent)
+  }
+  if (!aiOrchestrator.getAgent(preguntaArchivoAgent.definition.id)) {
+    aiOrchestrator.registerAgent(preguntaArchivoAgent)
   }
 }

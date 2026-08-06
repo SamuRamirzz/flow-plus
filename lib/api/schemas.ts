@@ -215,6 +215,95 @@ export const analizarHorarioSchema = z.object({
     .refine((v) => !v.includes('..'), 'La ruta de la imagen no es válida'),
 })
 
+// Sprint Archivos / Tramo 2a — el archivo ya está en el bucket de staging
+// (`archivos-staging`); lo que viaja es su ruta, mismo criterio que
+// `analizarHorarioSchema.ruta` de arriba: charset restringido y sin `..`,
+// para que este campo no sirva como una primitiva de lectura arbitraria del
+// bucket. A diferencia de esa, acepta cualquier extensión de las permitidas
+// por el bucket (no solo imagen) — la validación de tipo real ya la hace
+// Postgres vía `allowed_mime_types` al insertar el objeto.
+//
+// El prefijo `<user_id>/` NO se valida acá (zod no conoce al usuario
+// autenticado): lo verifica el propio Route Handler antes de tocar Storage.
+//
+// `tareaId`/`materiaId` son independientes (igual que las columnas de
+// `archivos`, ver la migración): un archivo puede no tener ninguna, o tener
+// una sin la otra.
+export const crearArchivoSchema = z.object({
+  ruta: z
+    .string()
+    .trim()
+    .min(1, 'Falta la ruta del archivo en staging')
+    .max(300, 'La ruta es demasiado larga')
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$/, 'La ruta del archivo no es válida')
+    .refine((v) => !v.includes('..'), 'La ruta del archivo no es válida'),
+  nombre: z.string().trim().min(1, 'El nombre del archivo no puede estar vacío').max(255, 'El nombre es demasiado largo'),
+  tareaId: z.string().uuid('tareaId no es un id válido').nullable().optional(),
+  materiaId: z.string().uuid('materiaId no es un id válido').nullable().optional(),
+  categoria: z.string().trim().min(1).max(50).nullable().optional(),
+})
+
+// Sprint Archivos / Fase 4.1 — espejo en zod del check constraint
+// `notas_ancla_chk` (num_nonnulls(tarea_id, bloque_horario_id) <= 1): a lo
+// sumo UN ancla, nunca las dos a la vez. Una nota sin ninguna ("suelta") es
+// un estado válido de producto, no un error — ver el comentario de la
+// migración de Fase 1.
+const anclaNotaValida = (v: { tareaId?: string | null; bloqueHorarioId?: string | null }) => !(v.tareaId && v.bloqueHorarioId)
+const MENSAJE_ANCLA_NOTA = 'Una nota no puede estar anclada a una tarea y a un bloque de horario a la vez'
+
+export const crearNotaSchema = z
+  .object({
+    titulo: z.string().trim().min(1, 'El título no puede quedar vacío').max(200, 'El título es demasiado largo').nullable().optional(),
+    // Sin `.min(1)`: el comentario de la migración documenta que la UI futura
+    // va a autoguardar la fila en cuanto se abra el editor, antes de que haya
+    // nada escrito — la columna ya tiene `default ''`, este schema no debe
+    // exigir más que la base.
+    contenido: z.string().max(20000, 'La nota es demasiado larga').optional(),
+    tareaId: z.string().uuid('tareaId no es un id válido').nullable().optional(),
+    bloqueHorarioId: z.string().uuid('bloqueHorarioId no es un id válido').nullable().optional(),
+  })
+  .refine(anclaNotaValida, { message: MENSAJE_ANCLA_NOTA, path: ['tareaId'] })
+
+export const actualizarNotaSchema = z
+  .object({
+    titulo: z.string().trim().min(1, 'El título no puede quedar vacío').max(200, 'El título es demasiado largo').nullable().optional(),
+    contenido: z.string().max(20000, 'La nota es demasiado larga').optional(),
+    tareaId: z.string().uuid('tareaId no es un id válido').nullable().optional(),
+    bloqueHorarioId: z.string().uuid('bloqueHorarioId no es un id válido').nullable().optional(),
+  })
+  .refine(anclaNotaValida, { message: MENSAJE_ANCLA_NOTA, path: ['tareaId'] })
+  .refine((v) => v.titulo !== undefined || v.contenido !== undefined || v.tareaId !== undefined || v.bloqueHorarioId !== undefined, {
+    message: 'No hay nada que actualizar',
+  })
+
+// Sprint Archivos / Fase 7 — una pregunta sobre un archivo concreto. El
+// archivo NO viaja en el body: se identifica por el `[id]` de la ruta y el
+// servidor lo baja de Drive (así el cliente nunca manda contenido binario
+// que ya está guardado, mismo criterio que el resto de los endpoints de
+// Archivos).
+export const preguntarSobreArchivoSchema = z.object({
+  pregunta: z.string().trim().min(1, 'La pregunta no puede estar vacía').max(1000, 'La pregunta es demasiado larga'),
+})
+
+// Sprint Archivos / Fase 5.1 — el recorte a 50 turnos y el criterio de
+// cuándo intentar el resumen viven en lib/ai/conversaciones/guardar.ts, no
+// acá: este schema solo valida FORMA (mismo criterio que el resto del
+// archivo — zod es el borde HTTP, no la lógica de negocio). `en` es
+// opcional porque el cliente de hoy (components/ai/conversacion.ts) no
+// trackea timestamp por turno — si falta, el servidor lo completa con la
+// hora de guardado.
+export const guardarConversacionSchema = z.object({
+  mensajes: z
+    .array(
+      z.object({
+        rol: z.enum(['usuario', 'ia'], { error: 'rol debe ser "usuario" o "ia"' }),
+        texto: z.string().trim().min(1, 'texto no puede estar vacío'),
+        en: z.string().datetime({ message: 'en debe ser una fecha ISO válida' }).optional(),
+      })
+    )
+    .min(1, 'La conversación no puede estar vacía'),
+})
+
 // Sprint Onboarding — lo único que el cliente puede cambiar hoy del perfil.
 //
 // Deliberadamente NO acepta `nombre`: el nombre se rellena en el servidor
@@ -286,5 +375,10 @@ export type CrearMateriaInput = z.infer<typeof crearMateriaSchema>
 export type FusionarMateriasInput = z.infer<typeof fusionarMateriasSchema>
 export type CrearTareaInput = z.infer<typeof crearTareaSchema>
 export type ActualizarTareaInput = z.infer<typeof actualizarTareaSchema>
+export type CrearArchivoInput = z.infer<typeof crearArchivoSchema>
+export type CrearNotaInput = z.infer<typeof crearNotaSchema>
+export type ActualizarNotaInput = z.infer<typeof actualizarNotaSchema>
+export type GuardarConversacionInput = z.infer<typeof guardarConversacionSchema>
+export type PreguntarSobreArchivoInput = z.infer<typeof preguntarSobreArchivoSchema>
 export type CrearBloqueHorarioInput = z.infer<typeof crearBloqueHorarioSchema>
 export type ActualizarBloqueHorarioInput = z.infer<typeof actualizarBloqueHorarioSchema>

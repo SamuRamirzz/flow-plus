@@ -135,6 +135,24 @@ export async function PATCH(request: Request, { params }: Contexto) {
     return errorJson(error.message, 500)
   }
 
+  // Fix de consistencia — si la materia cambió, los archivos ya asociados a
+  // esta tarea quedan con una materia_id obsoleta (riesgo documentado y
+  // aceptado en la migración de `archivos`: "la sincronización tiene que
+  // vivir en el código... si el endpoint ya va a tocar la fila, actualizar
+  // una columna más es gratis"). Se hace DESPUÉS de que el update principal
+  // ya tuvo éxito — un fallo acá nunca debe poder tumbar el PATCH de la
+  // tarea — y best-effort, mismo criterio que resolverIcono/resolverDedup.
+  // Sin mover de carpeta en Drive: no existen subcarpetas por materia
+  // todavía (Tramo 2a), solo se sincroniza la columna de Postgres.
+  if (cambios.materia_id !== undefined) {
+    const { error: errorArchivos } = await supabaseServer
+      .from('archivos')
+      .update({ materia_id: cambios.materia_id })
+      .eq('tarea_id', id)
+      .eq('user_id', userId)
+    if (errorArchivos) console.error('[api/tareas/[id]] no se pudo sincronizar archivos.materia_id:', errorArchivos.message)
+  }
+
   // Mismo shape que POST /api/tareas ({ tarea, ...avisos }) — no se
   // aplanan avisoFecha/colisiones junto a las columnas de la tarea, para
   // que el cliente tipe una sola forma de respuesta en los dos endpoints.

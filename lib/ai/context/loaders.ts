@@ -54,12 +54,87 @@ export const cargarSchedule: ScopeLoader = async (userId) => {
   }
 }
 
+// academic — Sprint Archivos / Fase 4.3: notas ancladas a una tarea (las
+// "sueltas", sin tarea_id, se excluyen — no tienen relación con una tarea
+// sobre la que se esté preguntando). Cap de 50 notas por recencia y 500
+// caracteres de contenido cada una: mismo espíritu que el recorte a ~50
+// turnos de `conversaciones_ia.mensajes` (Fase 5) — no dejar que el tamaño
+// del prompt crezca sin límite con el uso normal de la app.
+const CAP_NOTAS = 50
+const CAP_CONTENIDO_NOTA = 500
+
+type FilaNota = { tarea_id: string | null; titulo: string | null; contenido: string }
+
+export const cargarAcademic: ScopeLoader = async (userId) => {
+  const { data, error } = await supabaseServer
+    .from('notas')
+    .select('tarea_id, titulo, contenido')
+    .eq('user_id', userId)
+    .not('tarea_id', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(CAP_NOTAS)
+    .returns<FilaNota[]>()
+  if (error) throw new Error(`No se pudieron cargar las notas del usuario: ${error.message}`)
+
+  const notasPorTareaId: Record<string, Array<{ titulo: string | null; contenido: string }>> = {}
+  for (const n of data ?? []) {
+    if (!n.tarea_id) continue
+    const lista = notasPorTareaId[n.tarea_id] ?? []
+    lista.push({ titulo: n.titulo, contenido: n.contenido.slice(0, CAP_CONTENIDO_NOTA) })
+    notasPorTareaId[n.tarea_id] = lista
+  }
+
+  return { notasPorTareaId }
+}
+
+// conversationHistory — Sprint Archivos / Fase 5.3: últimas conversaciones
+// pasadas con la IA, por recencia ("empieza simple", sin búsqueda semántica
+// — límite conocido, un sprint futuro si hace falta). `resumen` puede ser
+// `null` (todavía no se generó, o falló) — en ese caso se cae a las
+// primeras palabras del primer mensaje, nunca se omite la conversación
+// entera solo porque le falta el resumen.
+const CAP_CONVERSACIONES = 3
+const CAP_PALABRAS_FALLBACK = 20
+
+type FilaConversacion = { mensajes: unknown; resumen: string | null; updated_at: string }
+
+function resumenOFallback(fila: FilaConversacion): string {
+  if (fila.resumen) return fila.resumen
+
+  const mensajes = Array.isArray(fila.mensajes) ? fila.mensajes : []
+  const primerTexto = mensajes
+    .map((m) => (typeof m === 'object' && m !== null && typeof (m as Record<string, unknown>).texto === 'string' ? ((m as Record<string, unknown>).texto as string) : null))
+    .find((t): t is string => t !== null)
+  if (!primerTexto) return '(conversación sin contenido legible)'
+
+  const palabras = primerTexto.trim().split(/\s+/)
+  const recorte = palabras.slice(0, CAP_PALABRAS_FALLBACK).join(' ')
+  return palabras.length > CAP_PALABRAS_FALLBACK ? `${recorte}…` : recorte
+}
+
+export const cargarConversationHistory: ScopeLoader = async (userId) => {
+  const { data, error } = await supabaseServer
+    .from('conversaciones_ia')
+    .select('mensajes, resumen, updated_at')
+    .eq('user_id', userId)
+    .eq('archivada', false)
+    .order('updated_at', { ascending: false })
+    .limit(CAP_CONVERSACIONES)
+    .returns<FilaConversacion[]>()
+  if (error) throw new Error(`No se pudieron cargar las conversaciones pasadas del usuario: ${error.message}`)
+
+  const conversaciones = (data ?? []).map((f) => ({ resumen: resumenOFallback(f), fecha: f.updated_at }))
+  return { conversaciones }
+}
+
 // Solo se implementan los scopes que algún agente necesita HOY. Pedir
-// 'operational' | 'habits' | 'academic' lanza AINotImplementedError desde
-// ContextEngine (ver allí) — deliberado: es mejor fallar fuerte que
-// entregar un contexto vacío que el modelo interpretaría como "el usuario
-// no tiene hábitos/historial" en vez de "esto no está construido".
+// 'operational' | 'habits' lanza AINotImplementedError desde ContextEngine
+// (ver allí) — deliberado: es mejor fallar fuerte que entregar un contexto
+// vacío que el modelo interpretaría como "el usuario no tiene hábitos" en
+// vez de "esto no está construido".
 export const loadersPorDefecto: LoadersPorScope = {
   identity: cargarIdentity,
   schedule: cargarSchedule,
+  academic: cargarAcademic,
+  conversationHistory: cargarConversationHistory,
 }

@@ -5,7 +5,7 @@ import type { TipoRespuestaGestion } from './types'
 const PRIORIDADES: HomeworkPriority[] = ['baja', 'media', 'alta']
 const TIPOS: HomeworkTaskType[] = ['ejercicios', 'examen', 'ensayo', 'lectura', 'proyecto', 'otro']
 const TIPOS_RESPUESTA: TipoRespuestaGestion[] = ['operaciones', 'conversacional']
-const TIPOS_OPERACION = ['crear', 'modificar', 'borrar', 'ambiguo', 'sin_coincidencias'] as const
+const TIPOS_OPERACION = ['crear', 'modificar', 'borrar', 'ambiguo', 'sin_coincidencias', 'crear_nota'] as const
 type TipoOperacionRaw = (typeof TIPOS_OPERACION)[number]
 const ACCIONES_ORIGINALES = ['modificar', 'borrar'] as const
 
@@ -26,6 +26,21 @@ const MAX_OPERACIONES = 20
 // aplica — igual que "" → null ya establecido en HomeworkAgent. Además se
 // puso maxItems como segunda red de seguridad, y el parser trunca de forma
 // defensiva sin importar qué límite respete o no el modelo.
+//
+// Sprint Archivos / Fase 4.2 — se agregó `tipo:'crear_nota'` + UN campo
+// nuevo requerido (`contenidoNota`), de 12 a 13 propiedades. Se trata como
+// hipótesis NO verificada, no como hecho: el precedente de degeneración de
+// arriba fue con ~16 campos mayormente OPCIONALES agregados a operaciones ya
+// existentes; esto es un campo siempre-requerido-con-sentinel agregado por
+// un miembro NUEVO de una unión discriminada — estructuralmente distinto,
+// pero nadie en este código probó esa distinción contra el modelo real antes
+// de este cambio. Se verificó con un stress test de 15-20 llamadas reales
+// variando todos los tipos de operación en la misma sesión (ver el registro
+// de verificación de este sprint). `crear_nota` reusa `descripcion`/
+// `indiceObjetivo`/`indicesCandidatos` — los mismos tres campos que ya usan
+// modificar/borrar/ambiguo para resolver a qué tarea se refiere el usuario —
+// así que no hizo falta un campo nuevo para eso, solo para el contenido de
+// la nota en sí.
 export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
@@ -50,7 +65,7 @@ export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
             type: 'string',
             enum: TIPOS_OPERACION,
             description:
-              '"crear" para una tarea nueva. "modificar"/"borrar" cuando hay UNA sola tarea existente clara. "ambiguo" cuando la referencia calza con más de una tarea existente. "sin_coincidencias" cuando el usuario se refiere a una tarea que no está en la lista de tareas existentes.',
+              '"crear" para una tarea nueva. "modificar"/"borrar" cuando hay UNA sola tarea existente clara. "ambiguo" cuando la referencia calza con más de una tarea existente. "sin_coincidencias" cuando el usuario se refiere a una tarea que no está en la lista de tareas existentes. "crear_nota" cuando el usuario pide agregar una nota/anotación/comentario a una tarea existente (ej. "agrega una nota a mi tarea de Cálculo diciendo que faltó el punto 3") — identifica la tarea igual que en "modificar"/"borrar" (indiceObjetivo o indicesCandidatos), NUNCA crees una tarea nueva solo para adjuntarle una nota.',
           },
           titulo: {
             type: 'string',
@@ -88,22 +103,27 @@ export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
           descripcion: {
             type: 'string',
             description:
-              'Si tipo es "modificar"/"borrar"/"ambiguo"/"sin_coincidencias": descripción breve en español de a qué tarea se refería el usuario. Cadena vacía si tipo es "crear".',
+              'Si tipo es "modificar"/"borrar"/"ambiguo"/"sin_coincidencias"/"crear_nota": descripción breve en español de a qué tarea se refería el usuario. Cadena vacía si tipo es "crear".',
           },
           indiceObjetivo: {
             type: 'number',
             description:
-              'Si tipo es "modificar" o "borrar": el índice (de la lista numerada de tareas existentes que se te dio) de la tarea a la que te refieres. -1 en cualquier otro caso.',
+              'Si tipo es "modificar", "borrar" o "crear_nota": el índice (de la lista numerada de tareas existentes que se te dio) de la tarea a la que te refieres. -1 en cualquier otro caso.',
           },
           indicesCandidatos: {
             type: 'array',
             items: { type: 'number' },
-            description: 'Solo si tipo es "ambiguo": todos los índices de tareas existentes que podrían ser. Vacío en cualquier otro caso.',
+            description:
+              'Si tipo es "ambiguo", o si tipo es "crear_nota" y más de una tarea existente podría ser la referida: todos los índices de tareas existentes que podrían ser. Vacío en cualquier otro caso.',
           },
           accionOriginal: {
             type: 'string',
             enum: [...ACCIONES_ORIGINALES, ''],
             description: 'Solo si tipo es "ambiguo": qué quería hacer el usuario con esa tarea. Cadena vacía en cualquier otro caso.',
+          },
+          contenidoNota: {
+            type: 'string',
+            description: 'Solo si tipo es "crear_nota": el contenido de la nota, en español, redactado en base a lo que pidió el usuario. Cadena vacía en cualquier otro caso.',
           },
         },
         required: [
@@ -119,6 +139,7 @@ export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
           'indiceObjetivo',
           'indicesCandidatos',
           'accionOriginal',
+          'contenidoNota',
         ],
       },
     },
@@ -159,7 +180,20 @@ export type OperacionRefRaw = {
 
 export type OperacionSinCoincidenciasRaw = { tipo: 'sin_coincidencias'; descripcion: string }
 
-export type OperacionRaw = OperacionCrearRaw | OperacionRefRaw | OperacionSinCoincidenciasRaw
+// Sprint Archivos / Fase 4.2 — mismos tres campos de resolución que
+// OperacionRefRaw (descripcion/indiceObjetivo/indicesCandidatos: la misma
+// tarea real a la que ya sabe apuntar modificar/borrar), más el contenido de
+// la nota. Deliberadamente NO forma parte de `OperacionTarea` (types.ts) ni
+// de lo que resolverOperaciones() devuelve — ver resolver.ts::resolverNotas.
+export type OperacionCrearNotaRaw = {
+  tipo: 'crear_nota'
+  descripcion: string
+  indiceObjetivo: number | null
+  indicesCandidatos: number[]
+  contenidoNota: string
+}
+
+export type OperacionRaw = OperacionCrearRaw | OperacionRefRaw | OperacionSinCoincidenciasRaw | OperacionCrearNotaRaw
 
 export type TaskManagementParsedOutput = {
   tipoRespuesta: TipoRespuestaGestion
@@ -253,6 +287,21 @@ export class TaskManagementOutputParser implements OutputParser<TaskManagementPa
 
         if (tipo === 'sin_coincidencias') {
           operaciones.push({ tipo: 'sin_coincidencias', descripcion: normalizar(t.descripcion) ?? 'una tarea' })
+          continue
+        }
+
+        if (tipo === 'crear_nota') {
+          const contenidoNota = normalizar(t.contenidoNota)
+          if (!contenidoNota) continue
+          operaciones.push({
+            tipo: 'crear_nota',
+            descripcion: normalizar(t.descripcion) ?? 'una tarea',
+            indiceObjetivo: indiceValido(t.indiceObjetivo),
+            indicesCandidatos: Array.isArray(t.indicesCandidatos)
+              ? t.indicesCandidatos.map(indiceValido).filter((n): n is number => n !== null)
+              : [],
+            contenidoNota,
+          })
           continue
         }
 

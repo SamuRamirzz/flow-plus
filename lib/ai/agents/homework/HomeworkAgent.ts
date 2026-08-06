@@ -13,7 +13,9 @@ const definition: AIAgentDefinition = {
   outputSchema: HOMEWORK_OUTPUT_SCHEMA,
   // Sprint 9: `schedule` aporta la fecha de referencia ya resuelta en la
   // zona horaria del usuario; `identity`, las materias que ya existen.
-  contextScopes: ['schedule', 'identity'],
+  // Sprint Archivos / Fase 5.3: `conversationHistory` — últimas
+  // conversaciones pasadas con la IA, mismo criterio que TaskManagementAgent.
+  contextScopes: ['schedule', 'identity', 'conversationHistory'],
   autonomyLevel: 'suggested_confirmation_required',
   executionQueue: 'interactive',
 }
@@ -43,7 +45,20 @@ function materiasConocidas(context: AIContext): string[] {
   return Array.isArray(nombres) ? nombres.filter((n): n is string => typeof n === 'string') : []
 }
 
-function construirInstruccionSistema(fechaISO: string, materias: string[]): string {
+// Sprint Archivos / Fase 5.3 — mismo shape y mismo criterio defensivo que
+// TaskManagementAgent.ts::normalizarConversacionesPasadas.
+type ConversacionPasada = { resumen: string; fecha: string }
+
+function conversacionesConocidas(context: AIContext): ConversacionPasada[] {
+  const lista = (context.conversationHistory as { conversaciones?: unknown } | undefined)?.conversaciones
+  if (!Array.isArray(lista)) return []
+  return lista.filter(
+    (c): c is ConversacionPasada =>
+      typeof c === 'object' && c !== null && typeof (c as ConversacionPasada).resumen === 'string' && typeof (c as ConversacionPasada).fecha === 'string'
+  )
+}
+
+function construirInstruccionSistema(fechaISO: string, materias: string[], conversaciones: ConversacionPasada[]): string {
   return [
     'Eres el motor de comprensión de Flow+, una app de agenda académica para estudiantes.',
     `La fecha de hoy es ${fechaISO}. Úsala para resolver cualquier fecha relativa mencionada ("el viernes", "mañana", "en dos semanas").`,
@@ -58,6 +73,12 @@ function construirInstruccionSistema(fechaISO: string, materias: string[]): stri
       ? [
           `El usuario YA tiene registradas estas materias: ${materias.join(', ')}.`,
           'Si la materia de una tarea es una de esas, escríbela EXACTAMENTE con ese nombre (mismas tildes y mayúsculas) para que no se cree una materia duplicada. Solo usa un nombre distinto si de verdad se trata de una materia que no está en esa lista.',
+        ]
+      : []),
+    ...(conversaciones.length > 0
+      ? [
+          'SÍ tienes acceso al resumen de tus conversaciones anteriores con este mismo usuario (más recientes primero, abajo) — si es relevante para lo que dice ahora, úsalo con confianza, nunca digas que no tienes acceso al historial. Para extraer una tarea real, usa solo el texto actual del usuario, nunca inventes una a partir de estos resúmenes:',
+          conversaciones.map((c) => `- (${c.fecha.slice(0, 10)}) ${c.resumen}`).join('\n'),
         ]
       : []),
     'Responde únicamente con el JSON solicitado.',
@@ -80,7 +101,7 @@ class HomeworkAgentImpl implements AIAgent<HomeworkAgentOutput> {
     }
 
     const metadata: StructuredProviderMetadata = {
-      systemInstruction: construirInstruccionSistema(fechaDeReferencia(context), materiasConocidas(context)),
+      systemInstruction: construirInstruccionSistema(fechaDeReferencia(context), materiasConocidas(context), conversacionesConocidas(context)),
       outputSchema: HOMEWORK_OUTPUT_SCHEMA,
     }
 

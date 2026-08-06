@@ -91,9 +91,32 @@ export type OperacionTarea =
   | OperacionAmbigua
   | OperacionSinCoincidencias
 
+// Sprint Archivos / Fase 4.2 — resultado de resolver una intención
+// `crear_nota` contra `tareasExistentes`, DELIBERADAMENTE separado de
+// `OperacionTarea`: nunca se re-exporta desde index.ts (el barrel que
+// consume components/ai/*), solo lo importan resolver.ts/TaskManagementAgent.ts
+// y app/api/ai/tareas/route.ts de forma directa. Una nota ambigua no tiene
+// picker de candidatos en el cliente (a diferencia de modificar/borrar) — se
+// resuelve con una respuesta conversacional pidiendo aclaración, ver el
+// Route Handler.
+export type OperacionCrearNotaResuelta =
+  | { id: string; estado: 'resuelto'; tareaId: string; contenidoNota: string }
+  | { id: string; estado: 'ambiguo'; contenidoNota: string; candidatos: TareaContexto[] }
+  | { id: string; estado: 'sin_coincidencias' }
+
 export type TaskManagementAgentOutput = {
   originalText: string
   tipoRespuesta: TipoRespuestaGestion
   mensaje: string | null
   operaciones: OperacionTarea[]
+  // Fase 4.2 — refleja EXACTAMENTE las operaciones `crear_nota` que el
+  // modelo propuso en este turno, ya resueltas contra tareasExistentes.
+  // Opcional (no simplemente `[]` por defecto): además de que el Route
+  // Handler siempre lo llena, mantenerlo opcional evita que los fixtures de
+  // test existentes en components/ai/__tests__/ (que construyen
+  // TaskManagementAgentOutput a mano, de antes de este campo) tengan que
+  // tocarse solo para agregar un campo que jamás leen — viaja en el JSON de
+  // respuesta pero solo lo consume el propio Route Handler, server-side,
+  // antes de responder.
+  notasParaCrear?: OperacionCrearNotaResuelta[]
 }
