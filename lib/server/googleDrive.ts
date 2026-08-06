@@ -159,6 +159,91 @@ export async function asegurarSubcarpeta(userId: string, nombre: string, carpeta
 }
 
 /**
+ * Sprint Archivos / Subcarpetas por materia — devuelve el id de la subcarpeta
+ * REAL de Drive de una materia, creándola dentro de "Flow+" la primera vez.
+ *
+ * ── Por qué vive acá y no en lib/integraciones/googleDrive.ts ─────────────
+ * El encargo la ubicaba en el módulo `lib/integraciones/`, pero ese archivo es
+ * PURO por diseño (sin red, sin Postgres — solo interpreta payloads y errores,
+ * y por eso tiene 20 tests que corren sin tocar nada). Esta función hace las
+ * dos cosas que ese módulo no puede hacer: llama a la API de Drive y escribe
+ * en Postgres. Ponerla ahí rompería el corte que sostiene todo el módulo. Va
+ * donde ya vive el resto del I/O de Drive, junto a `asegurarSubcarpeta`, sobre
+ * la que se apoya.
+ *
+ * Idempotente en dos niveles: reusa `materias.drive_folder_id` si ya está
+ * guardado, y si no, `asegurarSubcarpeta` busca por nombre antes de crear —
+ * así una corrida anterior que creó la carpeta pero falló al guardar el id no
+ * termina duplicando la carpeta en el Drive del usuario.
+ *
+ * No renombra la carpeta si la materia cambia de nombre después: el id
+ * guardado sigue apuntando a la carpeta correcta, solo que su nombre en Drive
+ * queda desactualizado. Es un límite conocido y barato de vivir (los archivos
+ * nunca se pierden); resolverlo pediría un `files.update` de nombre en el
+ * endpoint de materias, que es trabajo aparte y no se pidió.
+ */
+export async function obtenerOCrearCarpetaMateria(userId: string, materiaId: string, nombreMateria: string): Promise<ResultadoDrive<{ carpetaId: string }>> {
+  const { data, error } = await supabaseServer
+    .from('materias')
+    .select('drive_folder_id')
+    .eq('id', materiaId)
+    .eq('user_id', userId)
+    .maybeSingle<{ drive_folder_id: string | null }>()
+
+  if (error) return { ok: false, clase: 'transitorio', detalle: `No se pudo leer la materia: ${error.message}` }
+  if (!data) return { ok: false, clase: 'permisos', detalle: 'La materia no existe o no es tuya' }
+  if (data.drive_folder_id) return { ok: true, datos: { carpetaId: data.drive_folder_id } }
+
+  const raiz = await asegurarCarpetaRaiz(userId)
+  if (!raiz.ok) return raiz
+
+  const sub = await asegurarSubcarpeta(userId, nombreMateria, raiz.datos.carpetaId)
+  if (!sub.ok) return sub
+
+  const { error: errorUpdate } = await supabaseServer
+    .from('materias')
+    .update({ drive_folder_id: sub.datos.carpetaId })
+    .eq('id', materiaId)
+    .eq('user_id', userId)
+  // Mismo criterio que `asegurarCarpetaRaiz`: la carpeta ya existe en Drive,
+  // perder la caché del id solo cuesta una búsqueda por nombre la próxima vez.
+  if (errorUpdate) console.error('[googleDrive] no se pudo guardar materias.drive_folder_id:', errorUpdate.message)
+
+  return { ok: true, datos: { carpetaId: sub.datos.carpetaId } }
+}
+
+/**
+ * Mueve un archivo ya existente entre carpetas de Drive.
+ *
+ * Usa `files.update` con `addParents`/`removeParents` — NO vuelve a subir el
+ * binario. Un archivo de 10 MB movido de carpeta no debe costar 10 MB de
+ * tráfico ni cambiar su `drive_file_id` (que es la clave con la que la fila de
+ * `archivos` lo referencia; re-subir la invalidaría).
+ *
+ * `removeParents` se calcula pidiendo los padres actuales en vez de asumir la
+ * raíz: un archivo puede estar en cualquier carpeta según de dónde venga, y
+ * pasar un padre equivocado a `removeParents` deja el archivo en dos carpetas
+ * a la vez (Drive lo permite) en vez de moverlo.
+ */
+export async function moverArchivoDeCarpeta(userId: string, driveFileId: string, carpetaDestinoId: string): Promise<ResultadoDrive<{ movido: boolean }>> {
+  const actual = await fetchDrive(userId, `${BASE_DRIVE_API}/files/${encodeURIComponent(driveFileId)}?fields=parents`)
+  if (!actual.ok) return actual
+
+  const { parents = [] } = (await actual.datos.json()) as { parents?: string[] }
+  if (parents.length === 1 && parents[0] === carpetaDestinoId) {
+    return { ok: true, datos: { movido: false } }
+  }
+
+  const params = new URLSearchParams({ addParents: carpetaDestinoId, fields: 'id,parents' })
+  if (parents.length > 0) params.set('removeParents', parents.join(','))
+
+  const res = await fetchDrive(userId, `${BASE_DRIVE_API}/files/${encodeURIComponent(driveFileId)}?${params.toString()}`, { method: 'PATCH' })
+  if (!res.ok) return res
+
+  return { ok: true, datos: { movido: true } }
+}
+
+/**
  * Upload multipart simple (`uploadType=multipart`) — un solo request, cuerpo
  * `multipart/related` con una parte JSON de metadata y una parte binaria.
  * No resumable: razonable para los tamaños de este tramo (bucket de staging

@@ -5,11 +5,59 @@ import { actualizarTareaSchema } from '@/lib/api/schemas'
 import { ok, errorJson, errorDeValidacion } from '@/lib/server/respuestas'
 import { hoyEnZona, ZONA_HORARIA_POR_DEFECTO } from '@/lib/ai/context/fecha'
 import { esFechaPlausible, detectarColisiones, type ColisionDetectada, type ResultadoPlausibilidad } from '@/lib/ai/agents/calendar'
+import { asegurarCarpetaRaiz, obtenerOCrearCarpetaMateria, moverArchivoDeCarpeta } from '@/lib/server/googleDrive'
 
 // `params` es una Promise en esta versión de Next.js (App Router,
 // verificado contra node_modules/next/dist/docs/.../route.md) — no un
 // objeto plano como en versiones anteriores a la 15.
 type Contexto = { params: Promise<{ id: string }> }
+
+/**
+ * Mueve en Drive los archivos de una tarea que acaba de cambiar de materia.
+ *
+ * NUNCA lanza: un fallo de Drive (cuota, token revocado, red) no debe tumbar
+ * un PATCH de tarea que en Postgres ya tuvo éxito. El peor caso es que el
+ * archivo quede en la carpeta vieja — la fila de `archivos` ya apunta a la
+ * materia correcta, así que Flow+ lo sigue mostrando bien; solo el Drive del
+ * usuario queda un paso atrás hasta la próxima vez que se toque ese archivo.
+ *
+ * Si la tarea se queda SIN materia, los archivos vuelven a la raíz "Flow+" —
+ * el mismo destino que tienen los archivos sin materia al subirse, para que
+ * no haya dos criterios distintos según cómo llegaron ahí.
+ */
+async function moverArchivosDeTarea(
+  userId: string,
+  archivos: { id: string; drive_file_id: string | null }[],
+  materiaIdNueva: string | null
+): Promise<void> {
+  try {
+    let destino
+    if (materiaIdNueva) {
+      const { data: materia } = await supabaseServer
+        .from('materias')
+        .select('nombre')
+        .eq('id', materiaIdNueva)
+        .eq('user_id', userId)
+        .maybeSingle<{ nombre: string }>()
+      if (!materia) return
+      destino = await obtenerOCrearCarpetaMateria(userId, materiaIdNueva, materia.nombre)
+    } else {
+      destino = await asegurarCarpetaRaiz(userId)
+    }
+    if (!destino.ok) {
+      console.error('[api/tareas/[id]] no se pudo resolver la carpeta destino en Drive:', destino.detalle)
+      return
+    }
+
+    for (const archivo of archivos) {
+      if (!archivo.drive_file_id) continue
+      const movido = await moverArchivoDeCarpeta(userId, archivo.drive_file_id, destino.datos.carpetaId)
+      if (!movido.ok) console.error(`[api/tareas/[id]] no se pudo mover el archivo ${archivo.id} en Drive:`, movido.detalle)
+    }
+  } catch (e) {
+    console.error('[api/tareas/[id]] fallo inesperado moviendo archivos en Drive:', e instanceof Error ? e.message : String(e))
+  }
+}
 
 export async function PATCH(request: Request, { params }: Contexto) {
   const auth = await requerirUsuario()
@@ -142,15 +190,31 @@ export async function PATCH(request: Request, { params }: Contexto) {
   // una columna más es gratis"). Se hace DESPUÉS de que el update principal
   // ya tuvo éxito — un fallo acá nunca debe poder tumbar el PATCH de la
   // tarea — y best-effort, mismo criterio que resolverIcono/resolverDedup.
-  // Sin mover de carpeta en Drive: no existen subcarpetas por materia
-  // todavía (Tramo 2a), solo se sincroniza la columna de Postgres.
+  //
+  // Desde el sprint de subcarpetas, además de sincronizar la columna se
+  // MUEVE el archivo real de carpeta en Drive: si no, la organización que el
+  // usuario ve en su Drive se desincroniza de la que ve en Flow+ en cuanto
+  // reasigna una tarea, que es exactamente el problema que las subcarpetas
+  // venían a resolver.
   if (cambios.materia_id !== undefined) {
-    const { error: errorArchivos } = await supabaseServer
+    const { data: archivosDeLaTarea, error: errorArchivos } = await supabaseServer
       .from('archivos')
       .update({ materia_id: cambios.materia_id })
       .eq('tarea_id', id)
       .eq('user_id', userId)
+      .select('id, drive_file_id')
+      .returns<{ id: string; drive_file_id: string | null }[]>()
     if (errorArchivos) console.error('[api/tareas/[id]] no se pudo sincronizar archivos.materia_id:', errorArchivos.message)
+
+    const conDrive = (archivosDeLaTarea ?? []).filter((a) => a.drive_file_id !== null)
+    if (conDrive.length > 0) {
+      // `await` y no fire-and-forget: en serverless una promesa no esperada
+      // puede descartarse al devolver la respuesta (mismo motivo ya
+      // documentado en lib/server/integracionGoogle.ts). El coste es que el
+      // PATCH tarda un poco más cuando hay archivos que mover; a cambio, el
+      // movimiento de verdad ocurre.
+      await moverArchivosDeTarea(userId, conDrive, cambios.materia_id as string | null)
+    }
   }
 
   // Mismo shape que POST /api/tareas ({ tarea, ...avisos }) — no se

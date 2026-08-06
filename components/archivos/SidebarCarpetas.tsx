@@ -13,16 +13,29 @@ type Props = {
   onSeleccionar: (c: CarpetaId) => void
 }
 
-// Sidebar interno de "carpetas", replicando la columna izquierda de la
+// Sidebar interno de carpetas, replicando la columna izquierda de la
 // referencia.
 //
-// ⚠️ LIMITACIÓN REAL, documentada acá y no disimulada: estas NO son carpetas
-// de Google Drive. El backend sube TODO a una única carpeta "Flow+"
-// (`asegurarCarpetaRaiz`) más una subcarpeta "Notas" — las subcarpetas por
-// materia nunca se construyeron (ver la nota de pendientes en ROADMAP.md).
-// Son agrupaciones derivadas de `materia_id` / `tipo_documento` /
-// `analizado_en`, que es exactamente lo que el usuario espera ver y filtrar;
-// la diferencia solo se percibe si abre su Drive por fuera de Flow+.
+// ── Estas carpetas YA son reales ──────────────────────────────────────────
+// Desde el sprint de subcarpetas, cada materia tiene una subcarpeta de verdad
+// dentro de "Flow+" en el Drive del usuario (`materias.drive_folder_id`), y
+// los archivos se suben ahí. Lo que se ve acá y lo que se ve abriendo Drive
+// coinciden.
+//
+// ── Por qué se sigue agrupando por `materia_id` y no listando Drive ───────
+// Se evaluó listar las carpetas reales con la API de Drive. Se descartó por
+// tres motivos, en orden de peso:
+//   1. Una materia sin archivos todavía NO tiene carpeta (se crean
+//      perezosamente, al subir el primer archivo). Listando Drive, esa
+//      materia desaparecería del sidebar — justo la que el usuario necesita
+//      ver para poder subirle algo.
+//   2. Pintar el sidebar dependería de la latencia de red a Drive, cuando la
+//      lista de archivos ya viene de Postgres en la misma carga.
+//   3. `archivos.materia_id` es la fuente de verdad de a qué materia
+//      pertenece un archivo; la carpeta de Drive es el espejo. Listar el
+//      espejo en vez de la fuente invertiría esa relación.
+// Las entradas de "Filtros" (Analizados por IA, Horarios, Sin materia) sí son
+// puramente derivadas, y está bien que lo sean: son vistas, no ubicaciones.
 export default function SidebarCarpetas({ materias, archivos, seleccionada, onSeleccionar }: Props) {
   const especiales: { id: CarpetaId; label: string; Icono: typeof Folder }[] = [
     { id: { tipo: 'analizados' }, label: 'Analizados por IA', Icono: Sparkles },

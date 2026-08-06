@@ -239,12 +239,14 @@ export const CHIPS: { id: ChipFiltro; label: string }[] = [
 /**
  * Carpeta seleccionada en el sidebar interno.
  *
- * ⚠️ Estas NO son carpetas reales de Google Drive. El backend sube todo a una
- * única carpeta "Flow+" (`asegurarCarpetaRaiz`) más una subcarpeta "Notas" —
- * las subcarpetas por materia nunca se construyeron. Acá son agrupaciones
- * derivadas de `materia_id`/`tipo_documento`/`analizado_en`, que es lo que la
- * referencia visual pide mostrar y lo que el usuario espera ver; la
- * diferencia solo se nota si abre su Drive a mano.
+ * `{tipo:'materia'}` corresponde 1:1 con una subcarpeta REAL de Google Drive
+ * (`materias.drive_folder_id`), creada dentro de "Flow+" la primera vez que se
+ * sube un archivo de esa materia.
+ *
+ * Las otras tres son vistas derivadas, no ubicaciones: `sin-materia` son los
+ * archivos que viven en la raíz "Flow+", y `analizados`/`horarios` cruzan
+ * archivos de cualquier carpeta. Ver el comentario de SidebarCarpetas.tsx
+ * para por qué el sidebar se construye desde `materia_id` y no listando Drive.
  */
 export type CarpetaId = { tipo: 'todos' } | { tipo: 'materia'; materiaId: string } | { tipo: 'sin-materia' } | { tipo: 'analizados' } | { tipo: 'horarios' }
 

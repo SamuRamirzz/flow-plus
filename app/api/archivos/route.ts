@@ -1,6 +1,6 @@
 import { requerirUsuario } from '@/lib/server/usuario'
 import { supabaseServer } from '@/lib/server/supabaseServer'
-import { asegurarCarpetaRaiz, subirArchivo } from '@/lib/server/googleDrive'
+import { asegurarCarpetaRaiz, obtenerOCrearCarpetaMateria, subirArchivo } from '@/lib/server/googleDrive'
 import { estadoHttpParaClase } from '@/lib/integraciones/googleDrive'
 import { esRutaDelUsuario } from '@/lib/server/rutaStorage'
 import { crearArchivoSchema } from '@/lib/api/schemas'
@@ -49,9 +49,13 @@ export async function POST(request: Request) {
     const { data } = await supabaseServer.from('tareas').select('id').eq('id', tareaId).eq('user_id', userId).maybeSingle()
     if (!data) return errorJson('tareaId no corresponde a una tarea tuya', 400)
   }
+  // Se pide el NOMBRE además del id: es el nombre de la subcarpeta que se
+  // creará en Drive para esta materia.
+  let nombreMateria: string | null = null
   if (materiaId) {
-    const { data } = await supabaseServer.from('materias').select('id').eq('id', materiaId).eq('user_id', userId).maybeSingle()
+    const { data } = await supabaseServer.from('materias').select('id, nombre').eq('id', materiaId).eq('user_id', userId).maybeSingle<{ id: string; nombre: string }>()
     if (!data) return errorJson('materiaId no corresponde a una materia tuya', 400)
+    nombreMateria = data.nombre
   }
 
   const { data: objeto, error: errorDescarga } = await supabaseServer.storage.from(BUCKET_STAGING).download(ruta)
@@ -59,7 +63,19 @@ export async function POST(request: Request) {
     return errorJson(`No se pudo leer el archivo subido: ${errorDescarga?.message ?? 'no encontrado'}`, 404)
   }
 
-  const carpeta = await asegurarCarpetaRaiz(userId)
+  // Carpeta destino: la subcarpeta de la materia si el archivo tiene una, la
+  // raíz "Flow+" si no.
+  //
+  // Decisión: los archivos SIN materia van a la raíz, no a una subcarpeta
+  // "Sin materia". Una carpeta llamada así no organiza nada — nombra la
+  // ausencia de criterio, y en Drive se vería igual de desordenada que la
+  // raíz pero con un nivel más de clics. La raíz ya es, semánticamente, "lo
+  // que todavía no está clasificado". El sidebar de la app sí ofrece "Sin
+  // materia" como filtro, que es donde ese concepto sí es útil: filtrar es
+  // barato, crear una carpeta física es una decisión que el usuario ve en su
+  // Drive para siempre.
+  const carpeta =
+    materiaId && nombreMateria ? await obtenerOCrearCarpetaMateria(userId, materiaId, nombreMateria) : await asegurarCarpetaRaiz(userId)
   if (!carpeta.ok) return errorJson(`No se pudo preparar la carpeta de Drive: ${carpeta.detalle}`, estadoHttpParaClase(carpeta.clase))
 
   const mimeType = objeto.type || 'application/octet-stream'
