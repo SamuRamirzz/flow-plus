@@ -294,6 +294,14 @@ export default function Landing({ haySesion = false }: { haySesion?: boolean }) 
 
         <footer className="relative mt-24 flex flex-col sm:flex-row items-center justify-between gap-4 max-w-6xl mx-auto">
           <Wordmark />
+          <nav className="flex items-center gap-5 text-[13px] text-muted">
+            <Link href="/legal/privacidad" className="hover:text-paper transition">
+              Privacidad
+            </Link>
+            <Link href="/legal/terminos" className="hover:text-paper transition">
+              Términos
+            </Link>
+          </nav>
           <span className="text-[11px] font-mono uppercase tracking-wide text-muted/50">Agenda académica con IA</span>
         </footer>
       </section>

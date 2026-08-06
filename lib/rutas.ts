@@ -55,7 +55,11 @@ export const RUTA_AGENDA = '/agenda'
 // botón, y encimarle la navegación interna sería mezclar la página de marca
 // con la app. Las otras son pantallas de paso a pantalla completa, donde la
 // única acción que tiene sentido es la que la pantalla misma ofrece.
-const RUTAS_SIN_NAVEGACION = ['/login', '/bienvenida']
+// `/legal` — Términos/Privacidad son páginas públicas de lectura, del mismo
+// espíritu que la landing: un usuario con sesión que las visita no necesita
+// la navegación de la app encima, y un visitante sin sesión (el caso real
+// que Google Cloud Console exige poder servir) nunca la vería de todos modos.
+const RUTAS_SIN_NAVEGACION = ['/login', '/bienvenida', '/legal']
 
 export function esRutaDeEntrada(pathname: string): boolean {
   if (pathname === '/') return true

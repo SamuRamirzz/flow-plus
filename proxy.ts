@@ -54,7 +54,11 @@ import { createServerClient } from '@supabase/ssr'
 // redirección: /login redirige a /login redirige a /login...
 // `/auth/confirm`: confirmación del magic link de email (Sprint Auth, ajuste
 // por retirar el teléfono del alcance) — mismo criterio que /auth/callback.
-const RUTAS_PUBLICAS = ['/login', '/auth/callback', '/auth/confirm']
+// `/legal`: Términos de Servicio y Política de Privacidad — Google Cloud
+// Console exige URLs públicas y accesibles sin sesión para poder publicar
+// la app fuera de modo Testing; además cualquier visitante (con cuenta o
+// sin ella) tiene que poder leerlas.
+const RUTAS_PUBLICAS = ['/login', '/auth/callback', '/auth/confirm', '/legal']
 
 // Modo invitado — /agenda y /horario funcionan sin sesión (datos en
 // localStorage, ver lib/invitado/). El resto de la app (Home, /ai,
