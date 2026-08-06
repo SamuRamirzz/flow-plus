@@ -72,6 +72,13 @@ export async function guardarVinculacionGoogle(session: Session | null): Promise
       // primera operación de Drive no gaste un refresco.
       access_token_cifrado: tieneAccess ? cifrar(session.provider_token as string, contextoAccess(userId), claves) : null,
       access_token_expira_en: tieneAccess ? new Date(Date.now() + VIDA_ACCESS_TOKEN_MS).toISOString() : null,
+      // `scope` queda sin tocar acá a propósito: el tipo `Session` de
+      // @supabase/auth-js no expone el scope OAuth concedido en ningún campo —
+      // verificado contra su .d.ts. Se autocompleta solo en el primer refresco
+      // (interpretarRespuestaRefresco sí lee `scope` de la respuesta de
+      // Google), no en la captura inicial. No es un bug, es lo único que hay
+      // disponible en este punto sin gastar una llamada extra a Google dentro
+      // del callback de login.
       cuenta_email: session.user.email ?? null,
       // Volver a vincular limpia cualquier estado de revocación previo.
       revocada_en: null,
