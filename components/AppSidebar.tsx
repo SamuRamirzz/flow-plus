@@ -3,8 +3,8 @@ import { usePathname } from 'next/navigation'
 import { Sidebar, SidebarBody, SidebarLink, SidebarButton } from './ui/Sidebar'
 import { useImmersive } from '@/lib/immersive'
 import { useAjustesModal } from '@/lib/ajustesModal'
-import { esRutaDeEntrada, RUTA_APP, RUTA_AGENDA } from '@/lib/rutas'
-import { LayoutGrid, ListChecks, Sparkles, BookOpen, Settings } from 'lucide-react'
+import { esRutaDeEntrada, RUTA_APP, RUTA_AGENDA, RUTA_ARCHIVOS } from '@/lib/rutas'
+import { LayoutGrid, ListChecks, Sparkles, BookOpen, FolderOpen, Settings } from 'lucide-react'
 
 // Solo secciones REALES — cada entrada navega a una pantalla que existe.
 //
@@ -22,6 +22,7 @@ const LINKS = [
   { label: 'Agenda', href: RUTA_AGENDA, icon: <ListChecks size={18} /> },
   { label: 'IA', href: '/ai', icon: <Sparkles size={18} /> },
   { label: 'Horario', href: '/horario', icon: <BookOpen size={18} /> },
+  { label: 'Archivos', href: RUTA_ARCHIVOS, icon: <FolderOpen size={18} /> },
 ]
 
 export default function AppSidebar() {

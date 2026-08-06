@@ -6,6 +6,9 @@ export type CategoriaAjustesId =
   | 'apariencia'
   | 'fecha-hora'
   | 'notificaciones'
+  // Sprint Archivos — Drive sale de `proximamente` y pasa a categoría propia
+  // con estado real (ver components/ajustes/CategoriaGoogleDrive.tsx).
+  | 'google-drive'
   | 'proximamente'
   | 'cerrar-sesion'
 

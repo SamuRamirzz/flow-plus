@@ -25,7 +25,11 @@ const PALABRAS_CLAVE: Record<CategoriaAjustesId, string[]> = {
   apariencia: ['apariencia', 'tema', 'oscuro', 'claro', 'modo', 'color', 'fondo', 'noche', 'dia'],
   'fecha-hora': ['fecha', 'hora', 'zona horaria', 'reloj', 'formato', '12h', '24h', 'huso', 'utc'],
   notificaciones: ['notificaciones', 'avisos', 'recordatorios', 'alertas', 'no molestar', 'silencio', 'limite', 'tope'],
-  proximamente: ['proximamente', 'futuro', 'pronto', 'drive', 'whatsapp', 'historial', 'archivos', 'estudio'],
+  'google-drive': ['google drive', 'drive', 'archivos', 'almacenamiento', 'espacio', 'nube', 'vincular', 'desvincular', 'sincronizar'],
+  // 'drive'/'archivos' salen de acá: ya no son "próximamente", tienen su
+  // propia categoría con estado real — dejarlas duplicadas haría que buscar
+  // "drive" devolviera dos resultados, uno de ellos falso.
+  proximamente: ['proximamente', 'futuro', 'pronto', 'whatsapp', 'historial', 'estudio'],
   'cerrar-sesion': ['cerrar sesion', 'salir', 'logout', 'desconectar', 'sesion'],
 }
 

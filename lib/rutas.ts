@@ -44,6 +44,12 @@ export const RUTA_APP = '/home'
 // repetir el literal.
 export const RUTA_AGENDA = '/agenda'
 
+// Sprint Archivos / Frontend — sección propia, referenciada desde
+// `AppSidebar` y `NavDock`. Mismo criterio que las dos de arriba: la
+// constante existe para no repetir el literal en los sitios que navegan
+// hacia ella.
+export const RUTA_ARCHIVOS = '/archivos'
+
 // Ajustes NO tiene constante de ruta porque ya no es una ruta: es un modal
 // que se abre encima de la pantalla en la que estés (ver lib/ajustesModal.tsx
 // y components/ajustes/AjustesModal.tsx). La ruta `/ajustes` que existía

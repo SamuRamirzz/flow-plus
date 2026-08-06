@@ -4,8 +4,8 @@ import { motion } from 'motion/react'
 import Dock from './reactbits/Dock'
 import { useImmersive } from '@/lib/immersive'
 import { useAjustesModal } from '@/lib/ajustesModal'
-import { esRutaDeEntrada, RUTA_APP, RUTA_AGENDA } from '@/lib/rutas'
-import { LayoutGrid, ListChecks, Sparkles, BookOpen, Settings } from 'lucide-react'
+import { esRutaDeEntrada, RUTA_APP, RUTA_AGENDA, RUTA_ARCHIVOS } from '@/lib/rutas'
+import { LayoutGrid, ListChecks, Sparkles, BookOpen, FolderOpen, Settings } from 'lucide-react'
 
 // El Dock ahora es solo para móvil (lg:hidden) — en pantallas grandes,
 // la navegación la cubre el AppSidebar flotante de la izquierda.
@@ -47,6 +47,15 @@ export default function NavDock() {
       icon: <BookOpen size={18} />,
       label: 'Horario',
       onClick: () => router.push('/horario'),
+    },
+    {
+      // Sprint Archivos — el dock y el sidebar se mantienen con las MISMAS
+      // entradas (ahora 6): una sección que solo existe en desktop sería
+      // invisible para quien use la app desde el teléfono, que es el caso
+      // más común de "subir una foto de un enunciado".
+      icon: <FolderOpen size={18} />,
+      label: 'Archivos',
+      onClick: () => router.push(RUTA_ARCHIVOS),
     },
     {
       // Mismo ícono que en AppSidebar — antes este ítem usaba `User`

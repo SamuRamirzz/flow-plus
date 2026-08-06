@@ -18,13 +18,12 @@ export type ItemProximamente = {
   descripcion: string
 }
 
+// Google Drive salió de esta lista en el Sprint Archivos / Frontend: dejó de
+// ser "próximamente" y pasó a ser una categoría real con estado en vivo
+// (components/ajustes/CategoriaGoogleDrive.tsx), consumiendo los endpoints
+// construidos en Tramo 2a. Es exactamente lo que la cabecera de este archivo
+// pide que pase cuando algo se construye de verdad.
 export const PROXIMAMENTE: ItemProximamente[] = [
-  {
-    id: 'google-drive',
-    nombre: 'Google Drive',
-    icono: 'HardDrive',
-    descripcion: 'Vincula tu cuenta para guardar y encontrar tus archivos de clase.',
-  },
   {
     id: 'whatsapp',
     nombre: 'Recordatorios por WhatsApp',
