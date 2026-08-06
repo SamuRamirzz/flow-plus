@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { motion, AnimatePresence } from 'motion/react'
 import { Sparkles, Loader2, Mail, CheckCircle2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -247,7 +248,15 @@ function ContenidoLogin() {
         </BorderGlow>
 
         <p className="text-muted/70 text-[11px] text-center mt-6 leading-relaxed">
-          Al entrar, se crea tu cuenta si es la primera vez.
+          Al entrar, se crea tu cuenta si es la primera vez. Aceptas los{' '}
+          <Link href="/legal/terminos" className="underline decoration-dotted underline-offset-2 hover:text-paper transition">
+            Términos de Servicio
+          </Link>{' '}
+          y la{' '}
+          <Link href="/legal/privacidad" className="underline decoration-dotted underline-offset-2 hover:text-paper transition">
+            Política de Privacidad
+          </Link>
+          .
         </p>
 
         <button
