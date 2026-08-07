@@ -60,6 +60,21 @@ body {
   overflow: visible !important;
 }
 
+/* Oculta la barra de scroll nativa sin desactivar el scroll en sí — para
+   regiones que se desplazan como una "cápsula" propia dentro de la página
+   (ej. el índice de /legal) y no deben verse como un panel con su propio
+   scrollbar de sistema compitiendo visualmente con el resto de la UI.
+   Cubre los 3 motores reales (Firefox, WebKit/Chromium, y el legado de
+   Edge/IE) — sin las tres reglas, se oculta en unos navegadores y no en
+   otros. */
+.scrollbar-oculta {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Edge legado / IE */
+}
+.scrollbar-oculta::-webkit-scrollbar {
+  display: none; /* Chromium / Safari */
+}
+
 .dock-glass {
   background-color: var(--color-panel-glass) !important;
   backdrop-filter: blur(20px);
