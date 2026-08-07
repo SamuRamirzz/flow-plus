@@ -27,6 +27,10 @@ async function llamar<T>(input: RequestInfo, init: RequestInit): Promise<ApiResu
   return { ok: true, data: body as T }
 }
 
+export function apiGet<T>(url: string): Promise<ApiResultado<T>> {
+  return llamar<T>(url, { method: 'GET' })
+}
+
 export function apiPost<T>(url: string, body: unknown): Promise<ApiResultado<T>> {
   return llamar<T>(url, { method: 'POST', body: JSON.stringify(body) })
 }

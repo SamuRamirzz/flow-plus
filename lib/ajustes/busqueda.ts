@@ -25,6 +25,7 @@ const PALABRAS_CLAVE: Record<CategoriaAjustesId, string[]> = {
   apariencia: ['apariencia', 'tema', 'oscuro', 'claro', 'modo', 'color', 'fondo', 'noche', 'dia'],
   'fecha-hora': ['fecha', 'hora', 'zona horaria', 'reloj', 'formato', '12h', '24h', 'huso', 'utc'],
   notificaciones: ['notificaciones', 'avisos', 'recordatorios', 'alertas', 'no molestar', 'silencio', 'limite', 'tope'],
+  soporte: ['soporte', 'ayuda', 'contacto', 'correo', 'terminos', 'privacidad', 'legal', 'eliminar cuenta', 'borrar cuenta', 'eliminar', 'borrar'],
   // 'drive'/'archivos' salen de `proximamente`: ya no son funcionalidad en
   // camino. Viven en `perfil`, que es donde está el bloque de Google Drive —
   // dejarlas en las dos haría que buscar "drive" devolviera un resultado

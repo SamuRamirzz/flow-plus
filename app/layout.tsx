@@ -5,6 +5,8 @@ import { ToastProvider } from "@/lib/toast";
 import { ImmersiveProvider } from "@/lib/immersive";
 import { AjustesModalProvider } from "@/lib/ajustesModal";
 import { PreferenciasProvider, type Preferencias } from "@/lib/preferencias";
+import { CuentaEliminacionProvider, type EstadoCuentaEliminacion } from "@/lib/cuentaEliminacion";
+import BannerEliminacionCuenta from "@/components/BannerEliminacionCuenta";
 import LightRaysBackground from "@/components/reactbits/LightRaysBackground";
 import DotFieldBackground from "@/components/reactbits/DotFieldBackground";
 import NavDock from "@/components/NavDock";
@@ -42,18 +44,31 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const userId = await getUserIdOpcional()
   const haySesion = userId !== null
 
-  const preferenciasIniciales = userId
-    ? await (async () => {
-        const { data } = await supabaseServer
-          .from('perfil_academico')
-          .select('zona_horaria, formato_reloj')
-          .eq('user_id', userId)
-          .maybeSingle()
-        return {
-          zonaHoraria: data?.zona_horaria ?? ZONA_HORARIA_POR_DEFECTO,
-          formatoReloj: (data?.formato_reloj as Preferencias['formatoReloj']) ?? '24h',
-        }
-      })()
+  // Una sola consulta a `perfil_academico` alimenta preferencias Y el estado
+  // de eliminación de cuenta — son la misma fila, pedirla dos veces sería
+  // una consulta de servidor desperdiciada en cada carga de página.
+  const perfilInicial = userId
+    ? await supabaseServer
+        .from('perfil_academico')
+        .select('zona_horaria, formato_reloj, eliminacion_solicitada_en, eliminar_drive_tambien')
+        .eq('user_id', userId)
+        .maybeSingle()
+        .then((r) => r.data)
+    : null
+
+  const preferenciasIniciales: Preferencias | null = userId
+    ? {
+        zonaHoraria: perfilInicial?.zona_horaria ?? ZONA_HORARIA_POR_DEFECTO,
+        formatoReloj: (perfilInicial?.formato_reloj as Preferencias['formatoReloj']) ?? '24h',
+      }
+    : null
+
+  const cuentaEliminacionInicial: EstadoCuentaEliminacion | null = userId
+    ? {
+        solicitada: perfilInicial?.eliminacion_solicitada_en != null,
+        solicitadaEn: perfilInicial?.eliminacion_solicitada_en ?? null,
+        eliminarDriveTambien: perfilInicial?.eliminar_drive_tambien ?? null,
+      }
     : null
 
   return (
@@ -62,27 +77,34 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <ThemeProvider>
           <ToastProvider>
             <PreferenciasProvider inicial={preferenciasIniciales}>
-              <ImmersiveProvider>
-                <AjustesModalProvider>
-                  <LightRaysBackground />
-                  <DotFieldBackground />
-                  <ThemeToggle />
-                  {haySesion && <AppSidebar />}
-                  <ModeTransition>{children}</ModeTransition>
-                  {haySesion && <NavDock />}
-                  {/* Ajustes dejó de ser una ruta: se monta una sola vez acá
-                      y se abre desde el sidebar (desktop) o el dock (móvil),
-                      encima de la pantalla en la que estés. Mismo criterio de
-                      sesión que la navegación — sin sesión no hay ajustes que
-                      mostrar. */}
-                  {haySesion && <AjustesModal />}
-                  {/* Modo invitado — si hay datos locales de una sesión de
-                      invitado previa, se sincronizan solos apenas hay sesión
-                      real. Cubre cualquier pantalla autenticada, no solo
-                      /bienvenida (ver components/invitado/SincronizadorInvitado.tsx). */}
-                  {haySesion && <SincronizadorInvitado />}
-                </AjustesModalProvider>
-              </ImmersiveProvider>
+              <CuentaEliminacionProvider inicial={cuentaEliminacionInicial}>
+                <ImmersiveProvider>
+                  <AjustesModalProvider>
+                    <LightRaysBackground />
+                    <DotFieldBackground />
+                    <ThemeToggle />
+                    {/* Franja de "cuenta pendiente de eliminación" — se
+                        renderiza siempre que hay sesión; se esconde sola si
+                        no hay ninguna solicitud activa (ver el guard dentro
+                        del propio componente). */}
+                    {haySesion && <BannerEliminacionCuenta />}
+                    {haySesion && <AppSidebar />}
+                    <ModeTransition>{children}</ModeTransition>
+                    {haySesion && <NavDock />}
+                    {/* Ajustes dejó de ser una ruta: se monta una sola vez acá
+                        y se abre desde el sidebar (desktop) o el dock (móvil),
+                        encima de la pantalla en la que estés. Mismo criterio de
+                        sesión que la navegación — sin sesión no hay ajustes que
+                        mostrar. */}
+                    {haySesion && <AjustesModal />}
+                    {/* Modo invitado — si hay datos locales de una sesión de
+                        invitado previa, se sincronizan solos apenas hay sesión
+                        real. Cubre cualquier pantalla autenticada, no solo
+                        /bienvenida (ver components/invitado/SincronizadorInvitado.tsx). */}
+                    {haySesion && <SincronizadorInvitado />}
+                  </AjustesModalProvider>
+                </ImmersiveProvider>
+              </CuentaEliminacionProvider>
             </PreferenciasProvider>
           </ToastProvider>
         </ThemeProvider>

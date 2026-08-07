@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { crearMateriaSchema, crearTareaSchema, actualizarTareaSchema, actualizarBloqueHorarioSchema, fusionarMateriasSchema } from '../schemas'
+import {
+  crearMateriaSchema,
+  crearTareaSchema,
+  actualizarTareaSchema,
+  actualizarBloqueHorarioSchema,
+  fusionarMateriasSchema,
+  solicitarEliminacionCuentaSchema,
+} from '../schemas'
 
 describe('crearMateriaSchema', () => {
   it('acepta un nombre no vacío', () => {
@@ -161,5 +168,20 @@ describe('fusionarMateriasSchema', () => {
   it('rechaza campos ausentes', () => {
     expect(fusionarMateriasSchema.safeParse({ origenId: A }).success).toBe(false)
     expect(fusionarMateriasSchema.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('solicitarEliminacionCuentaSchema', () => {
+  it('acepta true y false por igual — ninguna de las dos opciones es el default', () => {
+    expect(solicitarEliminacionCuentaSchema.safeParse({ eliminarDriveTambien: true }).success).toBe(true)
+    expect(solicitarEliminacionCuentaSchema.safeParse({ eliminarDriveTambien: false }).success).toBe(true)
+  })
+
+  it('rechaza si el campo falta — la elección no puede ser implícita', () => {
+    expect(solicitarEliminacionCuentaSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('rechaza un valor que no es booleano', () => {
+    expect(solicitarEliminacionCuentaSchema.safeParse({ eliminarDriveTambien: 'si' }).success).toBe(false)
   })
 })

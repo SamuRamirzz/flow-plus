@@ -6,6 +6,7 @@ export type CategoriaAjustesId =
   | 'apariencia'
   | 'fecha-hora'
   | 'notificaciones'
+  | 'soporte'
   | 'proximamente'
   | 'cerrar-sesion'
 

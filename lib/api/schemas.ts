@@ -382,3 +382,15 @@ export type GuardarConversacionInput = z.infer<typeof guardarConversacionSchema>
 export type PreguntarSobreArchivoInput = z.infer<typeof preguntarSobreArchivoSchema>
 export type CrearBloqueHorarioInput = z.infer<typeof crearBloqueHorarioSchema>
 export type ActualizarBloqueHorarioInput = z.infer<typeof actualizarBloqueHorarioSchema>
+
+// Sprint Soporte + Eliminación de cuenta — `eliminarDriveTambien` es
+// obligatorio (no `.optional()`): es la elección explícita que el encargo
+// exige mostrar en la UI antes del botón de confirmar final, nunca un
+// default silencioso. Que falte en el body es un error de validación, no
+// "se asume que no" ni "se asume que sí" — ambas opciones son destructivas o
+// irreversibles a su manera, así que ninguna debe ser implícita.
+export const solicitarEliminacionCuentaSchema = z.object({
+  eliminarDriveTambien: z.boolean({ error: 'Tienes que elegir qué hacer con tus archivos de Drive' }),
+})
+
+export type SolicitarEliminacionCuentaInput = z.infer<typeof solicitarEliminacionCuentaSchema>

@@ -295,6 +295,13 @@ export default function Landing({ haySesion = false }: { haySesion?: boolean }) 
         <footer className="relative mt-24 flex flex-col sm:flex-row items-center justify-between gap-4 max-w-6xl mx-auto">
           <Wordmark />
           <nav className="flex items-center gap-5 text-[13px] text-muted">
+            {/* `mailto:` directo y no un link a Ajustes → Soporte: esa
+                sección vive dentro de la app autenticada, e inaccesible para
+                quien todavía no tiene cuenta — justo la audiencia que ve
+                este footer. */}
+            <a href="mailto:samuelramic1@hotmail.com" className="hover:text-paper transition">
+              Soporte
+            </a>
             <Link href="/legal/privacidad" className="hover:text-paper transition">
               Privacidad
             </Link>
