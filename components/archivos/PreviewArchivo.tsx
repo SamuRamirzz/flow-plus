@@ -29,9 +29,11 @@ import IconoArchivo from './IconoArchivo'
 // propia paginación dentro del iframe. Se documenta como diferencia real con
 // la referencia, no se finge con un "1 / 1" fijo.
 //
-// .docx/.xlsx tampoco se previsualizan: son ZIPs de XML: renderizarlos exige
-// una librería pesada. Mismo criterio que `politicaDeAnalisis` en el backend,
-// que los excluye del análisis de IA por la misma razón.
+// Word/PowerPoint/Excel tampoco se previsualizan VISUALMENTE: son ZIPs de
+// XML, renderizarlos exige una librería pesada. Pero a diferencia de antes,
+// esto ya NO significa "no se pueden analizar" — Gemini los lee de forma
+// nativa (ver lib/server/analisisArchivo.ts) — así que el mensaje de esta
+// sección es explícito sobre esa distinción, no dice "no soportado" sin más.
 
 type Props = { archivo: Archivo }
 
@@ -57,6 +59,19 @@ export default function PreviewArchivo({ archivo }: Props) {
   }
 
   if (familia === 'texto') return <PreviewTexto url={url} nombre={archivo.nombre} />
+
+  // 'documento' (Word/PowerPoint/Excel): sin vista visual, pero el mensaje
+  // aclara que el análisis de IA SÍ funciona — la sección "Resumen generado
+  // por IA" más abajo en el panel es donde se ve el contenido real de este
+  // archivo, no acá.
+  if (familia === 'documento') {
+    return (
+      <SinPreview
+        mensaje={`No hay vista previa visual para archivos ${archivo.nombre.split('.').pop()?.toUpperCase() ?? 'de este tipo'}, pero la IA sí puede leerlo — mira el resumen más abajo.`}
+        archivo={archivo}
+      />
+    )
+  }
 
   return <SinPreview mensaje={`Los archivos ${archivo.nombre.split('.').pop()?.toUpperCase() ?? 'de este tipo'} no se pueden previsualizar aquí.`} archivo={archivo} />
 }

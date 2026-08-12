@@ -16,6 +16,7 @@ export type FilaNota = {
   contenido: string
   tarea_id: string | null
   bloque_horario_id: string | null
+  archivo_id: string | null
   drive_file_id: string | null
   drive_sync_error: string | null
   creado_por: 'usuario' | 'ia'
@@ -32,7 +33,14 @@ export type FilaNota = {
  */
 export async function crearNota(
   userId: string,
-  input: { titulo: string | null; contenido: string; tareaId: string | null; bloqueHorarioId: string | null; creadoPor: 'usuario' | 'ia' }
+  input: {
+    titulo: string | null
+    contenido: string
+    tareaId: string | null
+    bloqueHorarioId: string | null
+    archivoId?: string | null
+    creadoPor: 'usuario' | 'ia'
+  }
 ): Promise<{ ok: true; nota: FilaNota } | { ok: false; error: string }> {
   const { data: nota, error } = await supabaseServer
     .from('notas')
@@ -42,6 +50,7 @@ export async function crearNota(
       contenido: input.contenido,
       tarea_id: input.tareaId,
       bloque_horario_id: input.bloqueHorarioId,
+      archivo_id: input.archivoId ?? null,
       creado_por: input.creadoPor,
     })
     .select()

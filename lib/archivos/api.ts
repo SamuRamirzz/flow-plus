@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import type { Archivo, ActividadIA, EspacioDrive, MensajeArchivo, EstadoDrive, TareaDetectada, TipoDocumento } from './tipos'
+import type { Archivo, ActividadIA, EspacioDrive, MensajeArchivo, EstadoDrive, TareaDetectada, TipoDocumento, Nota } from './tipos'
 
 // Sprint Archivos / Frontend — el único punto del cliente que habla con los
 // endpoints de Archivos. Mismo espíritu que lib/api/cliente.ts: cada pantalla
@@ -104,17 +104,57 @@ export async function desvincularDrive(): Promise<Resultado<unknown>> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Notas ancladas a un archivo
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function cargarNotasDeArchivo(archivoId: string): Promise<Resultado<Nota[]>> {
+  const r = await pedir<{ notas: Nota[] }>(`/api/notas?archivoId=${archivoId}`)
+  return r.ok ? { ok: true, datos: r.datos.notas } : r
+}
+
+export async function crearNotaDeArchivo(archivoId: string, contenido: string): Promise<Resultado<Nota>> {
+  const r = await pedir<{ nota: Nota }>('/api/notas', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ archivoId, contenido }),
+  })
+  return r.ok ? { ok: true, datos: r.datos.nota } : r
+}
+
+export async function actualizarNota(id: string, contenido: string): Promise<Resultado<Nota>> {
+  const r = await pedir<{ nota: Nota }>(`/api/notas/${id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ contenido }),
+  })
+  return r.ok ? { ok: true, datos: r.datos.nota } : r
+}
+
+export async function eliminarNota(id: string): Promise<Resultado<{ eliminado: boolean }>> {
+  return pedir<{ eliminado: boolean }>(`/api/notas/${id}`, { method: 'DELETE' })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Subida
 // ═══════════════════════════════════════════════════════════════════════════
 
 const BUCKET_STAGING = 'archivos-staging'
 
 /**
- * Fases de la subida. Son dos peticiones distintas y tardan cosas muy
- * distintas, así que la UI las nombra por separado en vez de mostrar una
- * sola barra que se queda clavada en el 100% mientras Drive procesa.
+ * Fases de la subida. Son etapas realmente distintas (dos peticiones, cada
+ * una con su propio progreso real), así que la UI las nombra por separado
+ * en vez de mostrar una sola barra que se queda clavada en el 100% mientras
+ * Drive procesa.
+ *
+ * `subiendo_drive` es nueva (Sprint Upload resumable): antes de esto, la
+ * fase "registrando" cubría TODA la subida a Drive de una sola vez, sin
+ * progreso — el servidor respondía cuando terminaba, sin nada intermedio.
+ * Ahora, para archivos por encima del umbral resumable, el servidor
+ * transmite el porcentaje real chunk a chunk (ver `POST /api/archivos`),
+ * así que esta fase sí tiene un `porcentaje` que se mueve de verdad, no un
+ * 100% fijo desde el principio.
  */
-export type FaseSubida = 'preparando' | 'subiendo' | 'registrando' | 'analizando'
+export type FaseSubida = 'preparando' | 'subiendo' | 'registrando' | 'subiendo_drive' | 'analizando'
 
 export type ProgresoSubida = { fase: FaseSubida; porcentaje: number }
 
@@ -127,56 +167,139 @@ export type ProgresoSubida = { fase: FaseSubida; porcentaje: number }
  * una barra indeterminada. XHR contra el mismo endpoint REST de Storage da
  * el porcentaje de bytes real, que es lo que pide la referencia.
  *
- * ⚠️ Esto es progreso real de la TRANSFERENCIA, no upload resumable por
- * chunks: el backend sube a Drive con multipart simple (`subirArchivo` en
- * lib/server/googleDrive.ts) y el bucket de staging tope a 50 MB. Un archivo
- * más grande que eso falla acá, no se parte en trozos — ver la nota de
- * limitaciones en components/archivos/SubirArchivo.tsx.
+ * `signal` es opcional y, a diferencia de `fetch`, XHR no acepta un
+ * `AbortSignal` de forma nativa — se traduce a mano (`signal.addEventListener
+ * ('abort', () => xhr.abort())`), incluido el caso borde de que ya venga
+ * abortado ANTES de que este código corra.
  */
-async function subirAStaging(archivo: File, onProgreso: (porcentaje: number) => void): Promise<Resultado<string>> {
-  const { data: sesion } = await supabase.auth.getSession()
-  const token = sesion.session?.access_token
-  const userId = sesion.session?.user?.id
+function subirAStaging(archivo: File, onProgreso: (porcentaje: number) => void, signal?: AbortSignal): Promise<Resultado<string>> {
+  return (async () => {
+    const { data: sesion } = await supabase.auth.getSession()
+    const token = sesion.session?.access_token
+    const userId = sesion.session?.user?.id
 
-  if (!token || !userId) {
-    return { ok: false, error: 'Tu sesión expiró — vuelve a iniciar sesión para subir archivos.', status: 401 }
+    if (!token || !userId) {
+      return { ok: false, error: 'Tu sesión expiró — vuelve a iniciar sesión para subir archivos.', status: 401 } as const
+    }
+
+    const extension = archivo.name.includes('.') ? archivo.name.split('.').pop()! : 'bin'
+    // Mismo esquema de ruta que lib/storage.ts — el prefijo `<user_id>/` es lo
+    // que comparan tanto las políticas RLS de Storage como `esRutaDelUsuario()`
+    // en el servidor. No es decorativo.
+    const ruta = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+
+    if (!base) return { ok: false, error: 'Falta la configuración de Supabase en el cliente', status: 0 } as const
+
+    return new Promise<Resultado<string>>((resolver) => {
+      if (signal?.aborted) {
+        resolver({ ok: false, error: 'Subida cancelada', status: 0 })
+        return
+      }
+
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `${base}/storage/v1/object/${BUCKET_STAGING}/${ruta}`)
+      xhr.setRequestHeader('authorization', `Bearer ${token}`)
+      xhr.setRequestHeader('x-upsert', 'false')
+      if (archivo.type) xhr.setRequestHeader('content-type', archivo.type)
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgreso((e.loaded / e.total) * 100)
+      }
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) return resolver({ ok: true, datos: ruta })
+        let mensaje = `No se pudo subir el archivo (${xhr.status})`
+        try {
+          const cuerpo = JSON.parse(xhr.responseText) as { message?: string; error?: string }
+          mensaje = cuerpo.message ?? cuerpo.error ?? mensaje
+        } catch {
+          /* respuesta sin JSON: se queda el mensaje genérico con el status */
+        }
+        resolver({ ok: false, error: mensaje, status: xhr.status })
+      }
+      xhr.onerror = () => resolver({ ok: false, error: 'Error de red al subir el archivo', status: 0 })
+      xhr.onabort = () => resolver({ ok: false, error: 'Subida cancelada', status: 0 })
+
+      signal?.addEventListener('abort', () => xhr.abort())
+
+      xhr.send(archivo)
+    })
+  })()
+}
+
+/** Forma de cada línea NDJSON que transmite `POST /api/archivos` — espejo del tipo `EventoSubida` del servidor. */
+type EventoSubidaServidor =
+  | { fase: 'registrando' }
+  | { fase: 'subiendo_drive'; porcentaje: number }
+  | { fase: 'completo'; archivo: Archivo }
+  | { fase: 'error'; mensaje: string; status: number }
+
+/**
+ * Registra el archivo (ya en staging) en Drive + Postgres, leyendo el
+ * stream NDJSON de `POST /api/archivos` para progreso real de la subida a
+ * Drive — ver ese Route Handler para el detalle completo del protocolo.
+ *
+ * `signal`: si se aborta, el `fetch` en curso se corta y el servidor lo
+ * detecta vía `request.signal` — verificado en vivo contra un `next dev`
+ * real (no asumido) que esto SÍ dispara el evento `abort` del lado
+ * servidor, deteniendo el loop de chunks a Drive de inmediato.
+ */
+async function registrarEnDrive(
+  ruta: string,
+  nombre: string,
+  opciones: Pick<OpcionesSubida, 'materiaId' | 'tareaId'>,
+  onProgreso: (p: ProgresoSubida) => void,
+  signal?: AbortSignal,
+): Promise<Resultado<Archivo>> {
+  let res: Response
+  try {
+    res = await fetch('/api/archivos', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ruta, nombre, materiaId: opciones.materiaId ?? null, tareaId: opciones.tareaId ?? null }),
+      signal,
+    })
+  } catch (e) {
+    if (signal?.aborted) return { ok: false, error: 'Subida cancelada', status: 0 }
+    return { ok: false, error: e instanceof Error ? e.message : 'Error de red', status: 0 }
   }
 
-  const extension = archivo.name.includes('.') ? archivo.name.split('.').pop()! : 'bin'
-  // Mismo esquema de ruta que lib/storage.ts — el prefijo `<user_id>/` es lo
-  // que comparan tanto las políticas RLS de Storage como `esRutaDelUsuario()`
-  // en el servidor. No es decorativo.
-  const ruta = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!res.ok) {
+    // Falló ANTES de empezar a transmitir (validación, ruta ajena, staging
+    // no encontrado) — el servidor todavía responde JSON plano en esos
+    // casos, ver el comentario de `POST /api/archivos`.
+    const cuerpo = await res.json().catch(() => null)
+    const mensaje = (cuerpo as { error?: string } | null)?.error ?? `Error ${res.status}`
+    return { ok: false, error: mensaje, status: res.status }
+  }
 
-  if (!base) return { ok: false, error: 'Falta la configuración de Supabase en el cliente', status: 0 }
+  if (!res.body) return { ok: false, error: 'El servidor no devolvió contenido', status: 0 }
 
-  return new Promise<Resultado<string>>((resolver) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${base}/storage/v1/object/${BUCKET_STAGING}/${ruta}`)
-    xhr.setRequestHeader('authorization', `Bearer ${token}`)
-    xhr.setRequestHeader('x-upsert', 'false')
-    if (archivo.type) xhr.setRequestHeader('content-type', archivo.type)
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let archivoFinal: Archivo | null = null
+  let errorFinal: { mensaje: string; status: number } | null = null
 
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgreso((e.loaded / e.total) * 100)
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lineas = buffer.split('\n')
+    buffer = lineas.pop() ?? '' // la última puede venir incompleta a mitad de un chunk de red
+    for (const linea of lineas) {
+      if (linea.trim().length === 0) continue
+      const evento = JSON.parse(linea) as EventoSubidaServidor
+      if (evento.fase === 'registrando') onProgreso({ fase: 'registrando', porcentaje: 100 })
+      else if (evento.fase === 'subiendo_drive') onProgreso({ fase: 'subiendo_drive', porcentaje: evento.porcentaje })
+      else if (evento.fase === 'completo') archivoFinal = evento.archivo
+      else if (evento.fase === 'error') errorFinal = { mensaje: evento.mensaje, status: evento.status }
     }
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) return resolver({ ok: true, datos: ruta })
-      let mensaje = `No se pudo subir el archivo (${xhr.status})`
-      try {
-        const cuerpo = JSON.parse(xhr.responseText) as { message?: string; error?: string }
-        mensaje = cuerpo.message ?? cuerpo.error ?? mensaje
-      } catch {
-        /* respuesta sin JSON: se queda el mensaje genérico con el status */
-      }
-      resolver({ ok: false, error: mensaje, status: xhr.status })
-    }
-    xhr.onerror = () => resolver({ ok: false, error: 'Error de red al subir el archivo', status: 0 })
-    xhr.onabort = () => resolver({ ok: false, error: 'Subida cancelada', status: 0 })
+  }
 
-    xhr.send(archivo)
-  })
+  if (errorFinal) return { ok: false, error: errorFinal.mensaje, status: errorFinal.status }
+  if (!archivoFinal) return { ok: false, error: 'La subida terminó sin confirmación del servidor', status: 0 }
+  return { ok: true, datos: archivoFinal }
 }
 
 export type OpcionesSubida = {
@@ -187,31 +310,29 @@ export type OpcionesSubida = {
 }
 
 /**
- * Flujo completo de subida: staging (progreso real) → registro en Drive →
- * análisis opcional.
+ * Flujo completo de subida: staging (progreso real) → registro en Drive
+ * (progreso real, resumable si el archivo es grande) → análisis opcional.
  *
  * El análisis va SEPARADO y después, tal como lo diseñó el backend: es una
  * llamada de visión que duplicaría la espera de la subida, y es reintentable
  * por sí sola. Si falla, la subida NO se considera fallida — el archivo ya
  * está en Drive y en Postgres.
+ *
+ * `signal` cancela CUALQUIERA de las dos fases de red en curso — no solo la
+ * UI, el servidor también se entera (ver `registrarEnDrive`).
  */
-export async function subirArchivoCompleto(archivo: File, opciones: OpcionesSubida, onProgreso: (p: ProgresoSubida) => void): Promise<Resultado<Archivo>> {
+export async function subirArchivoCompleto(
+  archivo: File,
+  opciones: OpcionesSubida,
+  onProgreso: (p: ProgresoSubida) => void,
+  signal?: AbortSignal,
+): Promise<Resultado<Archivo>> {
   onProgreso({ fase: 'preparando', porcentaje: 0 })
 
-  const staging = await subirAStaging(archivo, (pct) => onProgreso({ fase: 'subiendo', porcentaje: pct }))
+  const staging = await subirAStaging(archivo, (pct) => onProgreso({ fase: 'subiendo', porcentaje: pct }), signal)
   if (!staging.ok) return staging
 
-  onProgreso({ fase: 'registrando', porcentaje: 100 })
-  const registro = await pedir<{ archivo: Archivo }>('/api/archivos', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      ruta: staging.datos,
-      nombre: archivo.name,
-      materiaId: opciones.materiaId ?? null,
-      tareaId: opciones.tareaId ?? null,
-    }),
-  })
+  const registro = await registrarEnDrive(staging.datos, archivo.name, opciones, onProgreso, signal)
   if (!registro.ok) return registro
 
   if (opciones.analizar) {
@@ -219,8 +340,8 @@ export async function subirArchivoCompleto(archivo: File, opciones: OpcionesSubi
     // Deliberadamente sin propagar el fallo: un archivo que no se pudo
     // analizar sigue siendo una subida exitosa. El motivo queda en
     // `analisis_error` y la UI lo muestra en el panel de detalle.
-    await analizarArchivo(registro.datos.archivo.id)
+    await analizarArchivo(registro.datos.id)
   }
 
-  return { ok: true, datos: registro.datos.archivo }
+  return { ok: true, datos: registro.datos }
 }

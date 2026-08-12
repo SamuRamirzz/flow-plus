@@ -46,6 +46,10 @@ export default function ArchivosSection() {
   const [errorSubida, setErrorSubida] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [arrastrando, setArrastrando] = useState(false)
+  // Vive en un ref, no en estado: nunca dispara un render por sí sola, solo
+  // se lee/reasigna dentro de handlers. Una por subida — se crea al
+  // confirmar y se descarta al terminar (con éxito, error, o cancelación).
+  const controladorSubidaRef = useRef<AbortController | null>(null)
 
   const refrescar = useCallback(async () => {
     const [rArchivos, rActividad] = await Promise.all([cargarArchivos(), cargarActividad()])
@@ -121,7 +125,10 @@ export default function ArchivosSection() {
   async function alConfirmarSubida(materiaId: string | null, analizar: boolean) {
     if (!archivoASubir) return
     setErrorSubida(null)
-    const r = await subirArchivoCompleto(archivoASubir, { materiaId, analizar }, setProgreso)
+    const controlador = new AbortController()
+    controladorSubidaRef.current = controlador
+    const r = await subirArchivoCompleto(archivoASubir, { materiaId, analizar }, setProgreso, controlador.signal)
+    controladorSubidaRef.current = null
     setProgreso(null)
     if (!r.ok) {
       setErrorSubida(r.error)
@@ -133,6 +140,14 @@ export default function ArchivosSection() {
     const rEspacio = await cargarEspacio()
     if (rEspacio.ok) setEspacio(rEspacio.datos)
     setSeleccionadoId(r.datos.id)
+  }
+
+  // Corta tanto el XHR a Storage como el fetch a Drive (el que esté en
+  // curso — `subirArchivoCompleto` internamente sabe cuál de las dos fases
+  // está activa) y deja que `alConfirmarSubida` reciba el resultado de
+  // error "Subida cancelada" por su camino normal, sin un estado aparte.
+  function alCancelarSubida() {
+    controladorSubidaRef.current?.abort()
   }
 
   function cerrarSubida() {
@@ -250,6 +265,7 @@ export default function ArchivosSection() {
         error={errorSubida}
         onCerrar={cerrarSubida}
         onConfirmar={(materiaId, analizar) => void alConfirmarSubida(materiaId, analizar)}
+        onCancelar={alCancelarSubida}
       />
 
       {/* Capa de arrastrar y soltar sobre toda la sección */}

@@ -21,11 +21,11 @@ export async function POST(request: Request) {
   const parsed = crearNotaSchema.safeParse(body)
   if (!parsed.success) return errorDeValidacion(parsed.error)
 
-  const { titulo, contenido, tareaId, bloqueHorarioId } = parsed.data
+  const { titulo, contenido, tareaId, bloqueHorarioId, archivoId } = parsed.data
 
   // Mismo criterio que POST /api/archivos: zod no conoce al usuario
   // autenticado, y supabaseServer salta RLS — sin esto cualquier sesión
-  // podría anclar su nota a una tarea/bloque ajeno adivinando su id.
+  // podría anclar su nota a una tarea/bloque/archivo ajeno adivinando su id.
   if (tareaId) {
     const { data } = await supabaseServer.from('tareas').select('id').eq('id', tareaId).eq('user_id', userId).maybeSingle()
     if (!data) return errorJson('tareaId no corresponde a una tarea tuya', 400)
@@ -34,12 +34,17 @@ export async function POST(request: Request) {
     const { data } = await supabaseServer.from('horario').select('id').eq('id', bloqueHorarioId).eq('user_id', userId).maybeSingle()
     if (!data) return errorJson('bloqueHorarioId no corresponde a un bloque tuyo', 400)
   }
+  if (archivoId) {
+    const { data } = await supabaseServer.from('archivos').select('id').eq('id', archivoId).eq('user_id', userId).maybeSingle()
+    if (!data) return errorJson('archivoId no corresponde a un archivo tuyo', 400)
+  }
 
   const resultado = await crearNota(userId, {
     titulo: titulo ?? null,
     contenido: contenido ?? '',
     tareaId: tareaId ?? null,
     bloqueHorarioId: bloqueHorarioId ?? null,
+    archivoId: archivoId ?? null,
     creadoPor: 'usuario',
   })
   if (!resultado.ok) return errorJson(resultado.error, 500)
@@ -55,16 +60,19 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const tareaId = searchParams.get('tareaId')
   const bloqueHorarioId = searchParams.get('bloqueHorarioId')
+  const archivoId = searchParams.get('archivoId')
   const sueltas = searchParams.get('sueltas') === '1'
 
   let query = supabaseServer.from('notas').select('*').eq('user_id', userId).order('updated_at', { ascending: false })
   if (tareaId) query = query.eq('tarea_id', tareaId)
   if (bloqueHorarioId) query = query.eq('bloque_horario_id', bloqueHorarioId)
-  // Notas "sueltas": ni tarea ni bloque — la migración de Fase 1 exige
-  // explícitamente que exista este modo, para que borrar una tarea (que
-  // desancla sus notas con `on delete set null`, nunca las destruye) no las
-  // deje invisibles para siempre.
-  if (sueltas) query = query.is('tarea_id', null).is('bloque_horario_id', null)
+  if (archivoId) query = query.eq('archivo_id', archivoId)
+  // Notas "sueltas": ni tarea, ni bloque, ni archivo — la migración de Fase 1
+  // exige explícitamente que exista este modo, para que borrar una tarea
+  // (que desancla sus notas con `on delete set null`, nunca las destruye) no
+  // las deje invisibles para siempre. Mismo criterio aplicado ahora al
+  // tercer ancla.
+  if (sueltas) query = query.is('tarea_id', null).is('bloque_horario_id', null).is('archivo_id', null)
 
   const { data, error } = await query
   if (error) return errorJson(error.message, 500)

@@ -132,3 +132,110 @@ export function parsearEspacioUsado(cuerpo: unknown): { usadoBytes: number; tota
   const totalBytes = typeof limit === 'string' && limit.length > 0 ? Number(limit) : null
   return { usadoBytes, totalBytes: totalBytes !== null && Number.isFinite(totalBytes) ? totalBytes : null }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Upload resumable (archivos grandes) — protocolo verificado contra la
+// documentación real de Google
+// (developers.google.com/workspace/drive/api/guides/manage-uploads), no
+// adivinado:
+//   1. POST a `${BASE_DRIVE_UPLOAD}/files?uploadType=resumable` con headers
+//      `X-Upload-Content-Type`/`X-Upload-Content-Length` → la respuesta trae
+//      un header `Location` con la URI de sesión (válida 1 semana).
+//   2. PUT a esa URI por cada chunk, con `Content-Range: bytes A-B/total`.
+//      `308` = seguir subiendo, `200`/`201` = completo.
+//   3. Reanudar tras un corte: PUT vacío con `Content-Range: bytes */total`;
+//      el header `Range` de la respuesta (`bytes=0-N`) dice cuánto se
+//      recibió — hay que seguir desde el byte N+1.
+//
+// Todo lo de acá abajo es PURO: construye headers/URLs e interpreta
+// respuestas, sin hacer ningún fetch. El I/O real (que sí necesita el
+// access token) vive en lib/server/googleDrive.ts.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Múltiplo de 256KB recomendado por Google ("Create chunks in multiples of
+ * 256 KB... keep the chunk size as large as possible so the upload is
+ * efficient"). 8MB: bastante grande para que el overhead de latencia de
+ * cada PUT no domine el tiempo total (crítico dentro de un
+ * `maxDuration` acotado), sin ser tan grande como para arriesgar un buffer
+ * enorme en memoria del lado servidor a la vez.
+ */
+export const TAMANO_CHUNK_RESUMABLE = 8 * 1024 * 1024
+
+/** PURA. Body/headers para iniciar una sesión resumable. */
+export function construirInicioResumable(input: { nombre: string; mimeType: string; tamanoBytes: number; carpetaId: string }): {
+  url: string
+  headers: Record<string, string>
+  body: string
+} {
+  return {
+    url: `${BASE_DRIVE_UPLOAD}/files?uploadType=resumable&fields=id,webViewLink,size`,
+    headers: {
+      'content-type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': input.mimeType,
+      'X-Upload-Content-Length': String(input.tamanoBytes),
+    },
+    body: JSON.stringify(construirMetadataArchivo({ nombre: input.nombre, mimeType: input.mimeType, carpetaId: input.carpetaId })),
+  }
+}
+
+/**
+ * PURA. Header `Content-Range` para un chunk — formato exacto documentado:
+ * `bytes {inicio}-{fin}/{total}` (fin INCLUSIVE, a diferencia de cómo
+ * `slice()` de JS trata sus límites — quien arma el chunk de bytes debe
+ * restar 1 al índice de corte que use acá).
+ */
+export function construirContentRange(inicio: number, fin: number, total: number): string {
+  return `bytes ${inicio}-${fin}/${total}`
+}
+
+/** PURA. Igual que arriba, pero para la consulta de estado (PUT vacío) — sin rango conocido todavía. */
+export function construirContentRangeConsulta(total: number): string {
+  return `bytes */${total}`
+}
+
+export type ResultadoChunk =
+  | { estado: 'incompleto'; siguienteByte: number }
+  | { estado: 'completo'; driveFileId: string; webViewLink: string | null; tamanoBytes: number }
+  | { estado: 'error'; clase: ClaseErrorDrive; detalle: string }
+
+/**
+ * PURA. Interpreta la respuesta de un PUT de chunk — separada del fetch
+ * para poder probar los 3 desenlaces (308/200/error) sin red.
+ *
+ * `308` es Drive diciendo "seguí" — el header `Range` (`bytes=0-N`) indica
+ * el ÚLTIMO byte confirmado; el siguiente chunk debe empezar en N+1. Si el
+ * header falta (no debería, pero la red es la red), se asume que no se
+ * confirmó nada y se reintenta desde `finEsperado + 1` como mejor esfuerzo.
+ */
+export function interpretarRespuestaChunk(estadoHttp: number, headerRange: string | null, cuerpo: unknown, finEsperado: number): ResultadoChunk {
+  if (estadoHttp === 308) {
+    const match = headerRange ? /bytes=\d+-(\d+)/.exec(headerRange) : null
+    const ultimoConfirmado = match ? Number(match[1]) : finEsperado
+    return { estado: 'incompleto', siguienteByte: ultimoConfirmado + 1 }
+  }
+  if (estadoHttp === 200 || estadoHttp === 201) {
+    const c = (cuerpo ?? {}) as Record<string, unknown>
+    const id = typeof c.id === 'string' ? c.id : null
+    if (!id) return { estado: 'error', clase: 'configuracion', detalle: 'Drive respondió éxito pero sin id de archivo' }
+    return {
+      estado: 'completo',
+      driveFileId: id,
+      webViewLink: typeof c.webViewLink === 'string' ? c.webViewLink : null,
+      tamanoBytes: typeof c.size === 'string' ? Number(c.size) : finEsperado + 1,
+    }
+  }
+  const { clase, detalle } = interpretarErrorDrive(estadoHttp, cuerpo)
+  return { estado: 'error', clase, detalle }
+}
+
+/**
+ * PURA. ¿Dónde reanudar según el header `Range` de una consulta de estado
+ * (la que se hace con `construirContentRangeConsulta`)? Sin header `Range`
+ * en la respuesta, Drive no recibió ningún byte todavía — se reanuda desde 0.
+ */
+export function siguienteByteDesdeConsulta(headerRange: string | null): number {
+  if (!headerRange) return 0
+  const match = /bytes=\d+-(\d+)/.exec(headerRange)
+  return match ? Number(match[1]) + 1 : 0
+}

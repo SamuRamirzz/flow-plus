@@ -8,8 +8,13 @@ import {
   escaparValorConsultaDrive,
   interpretarErrorDrive,
   parsearEspacioUsado,
+  construirInicioResumable,
+  construirContentRange,
+  interpretarRespuestaChunk,
+  TAMANO_CHUNK_RESUMABLE,
   type ClaseErrorDrive,
   type ResultadoDrive,
+  type ResultadoChunk,
 } from '@/lib/integraciones/googleDrive'
 
 // Sprint Archivos / Fase 2 — la costura con I/O real de Google Drive API v3.
@@ -275,6 +280,146 @@ export async function subirArchivo(
   return {
     ok: true,
     datos: { driveFileId: datos.id, webViewLink: datos.webViewLink ?? null, tamanoBytes: datos.size ? Number(datos.size) : input.bytes.size },
+  }
+}
+
+export type ProgresoResumable = { bytesConfirmados: number; bytesTotal: number }
+
+/**
+ * Sube un archivo GRANDE a Drive con el protocolo resumable (chunks de
+ * `TAMANO_CHUNK_RESUMABLE`, ver lib/integraciones/googleDrive.ts para el
+ * protocolo verificado). A diferencia de `subirArchivo` (multipart simple,
+ * un solo request), esto reporta progreso real chunk a chunk y se puede
+ * cancelar de verdad a mitad de camino.
+ *
+ * No reusa `fetchDrive()`: ese helper trata cualquier `!res.ok` como error,
+ * pero acá un `308` (que SÍ cae fuera del rango 200-299 de `res.ok`) es la
+ * respuesta ESPERADA de "seguí subiendo", no una falla — necesita su propio
+ * manejo de respuesta.
+ *
+ * `signal` (opcional): el `AbortSignal` de la request HTTP entrante al
+ * Route Handler. Si se dispara a mitad de la subida, se corta el loop de
+ * chunks y se intenta un `DELETE` best-effort a la sesión de Drive —
+ * documentado como best-effort porque Google no documenta explícitamente
+ * el cancelado de una sesión resumable (verificado que no aparece en su
+ * guía); si el DELETE no tiene efecto, la sesión expira sola en 1 semana
+ * (esto sí está documentado).
+ */
+export async function subirArchivoResumable(
+  userId: string,
+  input: { bytes: Blob; nombre: string; mimeType: string; carpetaId: string },
+  onProgreso: (p: ProgresoResumable) => void,
+  signal?: AbortSignal,
+): Promise<ResultadoDrive<{ driveFileId: string; webViewLink: string | null; tamanoBytes: number }>> {
+  const token = await tokenOFallo(userId)
+  if (!token.ok) return token
+
+  const tamanoTotal = input.bytes.size
+  const inicio = construirInicioResumable({ nombre: input.nombre, mimeType: input.mimeType, tamanoBytes: tamanoTotal, carpetaId: input.carpetaId })
+
+  let resInicio: Response
+  try {
+    resInicio = await fetch(inicio.url, {
+      method: 'POST',
+      headers: { ...inicio.headers, Authorization: `Bearer ${token.accessToken}` },
+      body: inicio.body,
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(LIMITE_METADATA_MS)]) : AbortSignal.timeout(LIMITE_METADATA_MS),
+    })
+  } catch (error) {
+    return { ok: false, clase: 'transitorio', detalle: `No se pudo iniciar la sesión resumable: ${error instanceof Error ? error.message : String(error)}` }
+  }
+
+  if (!resInicio.ok) {
+    const cuerpo = await resInicio.json().catch(() => null)
+    const { clase, detalle } = interpretarErrorDrive(resInicio.status, cuerpo)
+    return { ok: false, clase, detalle }
+  }
+
+  const sessionUri = resInicio.headers.get('location')
+  if (!sessionUri) return { ok: false, clase: 'configuracion', detalle: 'Drive no devolvió la URI de sesión resumable (header Location ausente)' }
+
+  let siguienteByte = 0
+  // Tope de reintentos por chunk contra fallos de red transitorios — sin
+  // esto, un solo PUT que falle por una desconexión momentánea tumbaría
+  // toda la subida en vez de reintentar ese chunk.
+  const MAX_REINTENTOS_POR_CHUNK = 3
+
+  while (siguienteByte < tamanoTotal) {
+    if (signal?.aborted) {
+      await cancelarSesionResumable(sessionUri, token.accessToken)
+      return { ok: false, clase: 'transitorio', detalle: 'Subida cancelada' }
+    }
+
+    const finChunk = Math.min(siguienteByte + TAMANO_CHUNK_RESUMABLE, tamanoTotal) - 1
+    const chunk = input.bytes.slice(siguienteByte, finChunk + 1)
+
+    let resultadoChunk: ResultadoChunk | null = null
+    for (let intento = 0; intento < MAX_REINTENTOS_POR_CHUNK; intento++) {
+      let resChunk: Response
+      try {
+        resChunk = await fetch(sessionUri, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token.accessToken}`,
+            'Content-Length': String(chunk.size),
+            'Content-Range': construirContentRange(siguienteByte, finChunk, tamanoTotal),
+          },
+          body: chunk,
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(LIMITE_TRANSFERENCIA_MS)]) : AbortSignal.timeout(LIMITE_TRANSFERENCIA_MS),
+        })
+      } catch (error) {
+        // Fallo de red del propio fetch (no una respuesta HTTP de error) —
+        // reintentable, salvo que sea la cancelación del usuario.
+        if (signal?.aborted) {
+          await cancelarSesionResumable(sessionUri, token.accessToken)
+          return { ok: false, clase: 'transitorio', detalle: 'Subida cancelada' }
+        }
+        if (intento === MAX_REINTENTOS_POR_CHUNK - 1) {
+          return { ok: false, clase: 'transitorio', detalle: `Fallo de red subiendo un chunk: ${error instanceof Error ? error.message : String(error)}` }
+        }
+        continue
+      }
+
+      // 308 no trae body útil, pero parsearlo igual es inofensivo (falla a
+      // null en silencio) — más simple que ramificar por status acá, la
+      // rama que sí importa (extraer `id`/`webViewLink`) ya vive en
+      // `interpretarRespuestaChunk`.
+      const cuerpo = await resChunk.json().catch(() => null)
+      resultadoChunk = interpretarRespuestaChunk(resChunk.status, resChunk.headers.get('range'), cuerpo, finChunk)
+      if (resultadoChunk.estado !== 'error') break
+      // Error de Drive: reintentable solo si la CLASE lo sugiere (mismo
+      // criterio que el resto del proyecto — 'transitorio' sí, 'permisos'
+      // o 'configuracion' no tiene sentido reintentar sin cambiar nada).
+      if (resultadoChunk.clase !== 'transitorio' || intento === MAX_REINTENTOS_POR_CHUNK - 1) break
+    }
+
+    if (!resultadoChunk || resultadoChunk.estado === 'error') {
+      const detalle = resultadoChunk?.estado === 'error' ? resultadoChunk.detalle : 'Fallo desconocido subiendo un chunk'
+      const clase = resultadoChunk?.estado === 'error' ? resultadoChunk.clase : 'transitorio'
+      return { ok: false, clase, detalle }
+    }
+
+    if (resultadoChunk.estado === 'completo') {
+      onProgreso({ bytesConfirmados: tamanoTotal, bytesTotal: tamanoTotal })
+      return { ok: true, datos: { driveFileId: resultadoChunk.driveFileId, webViewLink: resultadoChunk.webViewLink, tamanoBytes: resultadoChunk.tamanoBytes } }
+    }
+
+    siguienteByte = resultadoChunk.siguienteByte
+    onProgreso({ bytesConfirmados: siguienteByte, bytesTotal: tamanoTotal })
+  }
+
+  // No debería llegarse acá (el loop termina por 'completo' o por error) —
+  // defensivo, para que TypeScript vea una función total.
+  return { ok: false, clase: 'configuracion', detalle: 'La subida terminó sin que Drive confirmara el archivo completo' }
+}
+
+async function cancelarSesionResumable(sessionUri: string, accessToken: string): Promise<void> {
+  try {
+    await fetch(sessionUri, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000) })
+  } catch (error) {
+    // Best-effort real: si esto falla, la sesión expira sola en 1 semana
+    // (comportamiento documentado por Google) — no hay nada más que hacer.
+    console.warn('[googleDrive] no se pudo cancelar la sesión resumable en Drive (expirará sola):', error instanceof Error ? error.message : error)
   }
 }
 

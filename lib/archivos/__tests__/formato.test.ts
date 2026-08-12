@@ -7,6 +7,7 @@ import {
   formatearRelativo,
   familiaDeArchivo,
   sePuedePrevisualizar,
+  esAnalizable,
   etiquetaIA,
   tonoEtiquetaIA,
   pareceUnaPregunta,
@@ -126,6 +127,31 @@ describe('sePuedePrevisualizar', () => {
 
   it('rechaza .docx — es un ZIP de XML, no renderizable sin dependencia pesada', () => {
     expect(sePuedePrevisualizar(null, 'Revolución Francesa.docx')).toBe(false)
+  })
+})
+
+describe('esAnalizable', () => {
+  it('acepta pdf, imagen y texto — mismo conjunto que sePuedePrevisualizar', () => {
+    expect(esAnalizable('application/pdf')).toBe(true)
+    expect(esAnalizable('image/png')).toBe(true)
+    expect(esAnalizable('text/plain')).toBe(true)
+  })
+
+  it('acepta Word/PowerPoint/Excel — a diferencia de sePuedePrevisualizar, que los rechaza', () => {
+    expect(esAnalizable('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'x.docx')).toBe(true)
+    expect(esAnalizable('application/vnd.openxmlformats-officedocument.presentationml.presentation', 'x.pptx')).toBe(true)
+    expect(esAnalizable('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x.xlsx')).toBe(true)
+    expect(esAnalizable('application/msword', 'x.doc')).toBe(true)
+    expect(esAnalizable('application/vnd.ms-powerpoint', 'x.ppt')).toBe(true)
+    expect(esAnalizable('application/vnd.ms-excel', 'x.xls')).toBe(true)
+  })
+
+  it('rechaza .odt — familiaDeArchivo lo agrupa como "documento" para el ícono, pero nunca se verificó contra Gemini', () => {
+    expect(esAnalizable('application/vnd.oasis.opendocument.text', 'x.odt')).toBe(false)
+  })
+
+  it('rechaza un formato realmente no soportado', () => {
+    expect(esAnalizable('application/zip', 'x.zip')).toBe(false)
   })
 })
 

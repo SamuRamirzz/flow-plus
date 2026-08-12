@@ -25,6 +25,25 @@ const MIME_IMAGEN = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 const MIME_TEXTO = ['text/plain', 'text/markdown', 'text/csv']
 const MIME_PDF = 'application/pdf'
 
+// Office (Word/PowerPoint/Excel) — verificado contra Gemini real, no
+// asumido: se probaron los 3 formatos (un PPTX real ya subido por el
+// usuario, y un DOCX/XLSX generados para la prueba) enviados como
+// `type:'document'`, exactamente el mismo camino binario que ya usa PDF.
+// Gemini 3.5 Flash-Lite los lee de forma NATIVA — resumen correcto, fechas
+// correctas, tabla de un XLSX correctamente entendida — sin ningún paso de
+// extracción de texto de por medio.
+//
+// Esto contradice la suposición de que "son ZIPs de XML, el modelo no los
+// lee como texto" que este mismo archivo tenía documentada — era cierta
+// para un parser de texto ingenuo, pero el modelo multimodal no necesita
+// texto plano: lee el binario directamente, igual que ya hace con PDF. Por
+// eso NO se agregó ninguna librería de extracción (`mammoth`, `xlsx`, un
+// parser de pptx): habría sido una dependencia nueva para resolver un
+// problema que no existe.
+const MIME_WORD = ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+const MIME_POWERPOINT = ['application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation']
+const MIME_EXCEL = ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+
 export type ResultadoAnalisis =
   | { ok: true; resumen: string | null; tipoDocumento: string; tareas: unknown[] }
   | { ok: false; motivo: string; reintentable: boolean }
@@ -43,11 +62,11 @@ type FilaArchivoAnalisis = {
  * al modelo? Separada del I/O para poder probar la política de formatos sin
  * red — es la parte con criterio real, el resto es fontanería.
  *
- * `.docx` y similares quedan fuera A PROPÓSITO y con un motivo explícito:
- * son ZIPs de XML, el modelo no los lee como texto, y extraerlos exigiría
- * una dependencia nueva solo para eso. Se prefiere decirle al usuario "este
- * formato no se puede analizar" antes que mandar basura al modelo y guardar
- * un resumen inventado.
+ * Word/PowerPoint/Excel van por la misma vía `'documento'` que PDF —
+ * verificado contra Gemini real que lo lee nativamente (ver el comentario
+ * de las constantes MIME_WORD/POWERPOINT/EXCEL arriba). `.zip` y otros
+ * binarios sin verificar quedan fuera: no se agrega un formato a esta
+ * función sin haberlo probado contra el modelo real primero.
  */
 export function politicaDeAnalisis(mimeType: string | null, tamanoBytes: number | null): { analizable: false; motivo: string } | { analizable: true; via: 'imagen' | 'documento' | 'texto' } {
   if (tamanoBytes !== null && tamanoBytes > MAX_BYTES_ANALISIS) {
@@ -56,6 +75,7 @@ export function politicaDeAnalisis(mimeType: string | null, tamanoBytes: number 
   if (!mimeType) return { analizable: false, motivo: 'El archivo no tiene un tipo reconocible' }
   if (MIME_IMAGEN.includes(mimeType)) return { analizable: true, via: 'imagen' }
   if (mimeType === MIME_PDF) return { analizable: true, via: 'documento' }
+  if (MIME_WORD.includes(mimeType) || MIME_POWERPOINT.includes(mimeType) || MIME_EXCEL.includes(mimeType)) return { analizable: true, via: 'documento' }
   if (MIME_TEXTO.includes(mimeType)) return { analizable: true, via: 'texto' }
   return { analizable: false, motivo: `El formato ${mimeType} todavía no se puede analizar automáticamente` }
 }

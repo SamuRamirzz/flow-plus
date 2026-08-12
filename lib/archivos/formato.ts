@@ -137,14 +137,53 @@ export function familiaDeArchivo(mimeType: string | null, nombre = ''): FamiliaA
 }
 
 /**
- * Formatos que el panel de detalle puede previsualizar de verdad hoy.
- * `documento` (.docx/.xlsx) queda fuera a propósito: son ZIPs de XML, no hay
- * forma de renderizarlos en el navegador sin una dependencia pesada — mismo
- * motivo por el que `politicaDeAnalisis` los excluye del análisis de IA.
+ * Formatos que el panel de detalle puede previsualizar VISUALMENTE hoy.
+ * `documento` (.docx/.pptx/.xlsx) queda fuera a propósito: son ZIPs de XML,
+ * no hay forma de renderizarlos en el navegador sin una dependencia pesada.
+ *
+ * ⚠️ Ya NO es lo mismo que "se puede analizar" — ver `esAnalizable()` más
+ * abajo. Antes del sprint que agregó análisis de Office, las dos cosas
+ * coincidían exactamente (todo lo previsualizable era analizable y
+ * viceversa); ahora Office es analizable pero no previsualizable, así que
+ * usar esta función como sustituto de esAnalizable() sería incorrecto (lo
+ * fue, hasta que se corrigió — ver ModalSubida.tsx).
  */
 export function sePuedePrevisualizar(mimeType: string | null, nombre = ''): boolean {
   const familia = familiaDeArchivo(mimeType, nombre)
   return familia === 'pdf' || familia === 'imagen' || familia === 'texto'
+}
+
+// MIME exactos que Gemini lee de forma nativa como documento binario —
+// espejo del lado cliente de `MIME_WORD`/`MIME_POWERPOINT`/`MIME_EXCEL` en
+// lib/server/analisisArchivo.ts (verificados contra Gemini real, ver ese
+// archivo para el detalle). Deliberadamente MÁS ESTRECHO que `MIME_DOC` de
+// arriba: `MIME_DOC` incluye `.odt` (OpenDocument) para fines de ícono/
+// familia visual, pero `.odt` nunca se probó contra el modelo — no se debe
+// ofrecer "Analizar con IA" para un formato que el servidor todavía
+// rechazaría.
+const MIME_ANALIZABLE_OFFICE = [
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]
+
+/**
+ * Espejo cliente de `politicaDeAnalisis()` (lib/server/analisisArchivo.ts) —
+ * solo la pregunta sí/no de "¿tiene sentido ofrecer el análisis de IA para
+ * este archivo?", sin la lógica de tamaño (esa se evalúa server-side, donde
+ * sí se conoce el tamaño real subido). Se usa para decidir si mostrar el
+ * toggle "Analizar con IA al subir" en `ModalSubida.tsx` — antes de este
+ * sprint se usaba (incorrectamente) `sePuedePrevisualizar()` para esto,
+ * porque hasta entonces analizable y previsualizable eran el mismo conjunto.
+ */
+export function esAnalizable(mimeType: string | null, nombre = ''): boolean {
+  const familia = familiaDeArchivo(mimeType, nombre)
+  if (familia === 'pdf' || familia === 'imagen' || familia === 'texto') return true
+  const mime = (mimeType ?? '').toLowerCase()
+  return MIME_ANALIZABLE_OFFICE.includes(mime)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

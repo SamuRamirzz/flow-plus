@@ -6,6 +6,8 @@ import {
   actualizarBloqueHorarioSchema,
   fusionarMateriasSchema,
   solicitarEliminacionCuentaSchema,
+  crearNotaSchema,
+  actualizarNotaSchema,
 } from '../schemas'
 
 describe('crearMateriaSchema', () => {
@@ -183,5 +185,49 @@ describe('solicitarEliminacionCuentaSchema', () => {
 
   it('rechaza un valor que no es booleano', () => {
     expect(solicitarEliminacionCuentaSchema.safeParse({ eliminarDriveTambien: 'si' }).success).toBe(false)
+  })
+})
+
+describe('crearNotaSchema — ancla de 3 vías (tarea / bloque / archivo)', () => {
+  const ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
+
+  it('acepta sin ninguna ancla (nota suelta)', () => {
+    expect(crearNotaSchema.safeParse({ contenido: 'x' }).success).toBe(true)
+  })
+
+  it('acepta exactamente una de las 3 anclas por separado', () => {
+    expect(crearNotaSchema.safeParse({ contenido: 'x', tareaId: ID }).success).toBe(true)
+    expect(crearNotaSchema.safeParse({ contenido: 'x', bloqueHorarioId: ID }).success).toBe(true)
+    expect(crearNotaSchema.safeParse({ contenido: 'x', archivoId: ID }).success).toBe(true)
+  })
+
+  it('rechaza dos anclas a la vez, en cualquier combinación', () => {
+    expect(crearNotaSchema.safeParse({ contenido: 'x', tareaId: ID, archivoId: ID }).success).toBe(false)
+    expect(crearNotaSchema.safeParse({ contenido: 'x', bloqueHorarioId: ID, archivoId: ID }).success).toBe(false)
+    expect(crearNotaSchema.safeParse({ contenido: 'x', tareaId: ID, bloqueHorarioId: ID }).success).toBe(false)
+  })
+
+  it('rechaza las 3 anclas a la vez', () => {
+    expect(crearNotaSchema.safeParse({ contenido: 'x', tareaId: ID, bloqueHorarioId: ID, archivoId: ID }).success).toBe(false)
+  })
+})
+
+describe('actualizarNotaSchema', () => {
+  const ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
+
+  it('acepta cambiar solo archivoId', () => {
+    expect(actualizarNotaSchema.safeParse({ archivoId: ID }).success).toBe(true)
+  })
+
+  it('acepta poner archivoId en null (desanclar)', () => {
+    expect(actualizarNotaSchema.safeParse({ archivoId: null }).success).toBe(true)
+  })
+
+  it('rechaza body vacío — nada que actualizar', () => {
+    expect(actualizarNotaSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('rechaza fijar dos anclas a la vez', () => {
+    expect(actualizarNotaSchema.safeParse({ tareaId: ID, archivoId: ID }).success).toBe(false)
   })
 })

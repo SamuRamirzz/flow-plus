@@ -7,20 +7,33 @@ import { X, UploadCloud, Sparkles, AlertTriangle, Loader2 } from 'lucide-react'
 import { useMontado } from '@/lib/useMontado'
 import type { Materia } from '@/lib/types'
 import type { ProgresoSubida } from '@/lib/archivos/api'
-import { formatearTamano, sePuedePrevisualizar } from '@/lib/archivos/formato'
+import { formatearTamano, esAnalizable } from '@/lib/archivos/formato'
 import IconoArchivo from './IconoArchivo'
 
-// Tope real del bucket `archivos-staging` (50 MB, migración 20260809000200).
-// Se comprueba en el CLIENTE además de en el servidor para no hacer esperar
-// al usuario una subida completa que ya se sabe que va a fallar.
-const MAX_BYTES = 50 * 1024 * 1024
+// Tope real del bucket `archivos-staging` (200MB, migración
+// 20260810000100). Se comprueba en el CLIENTE además de en el servidor para
+// no hacer esperar al usuario una subida completa que ya se sabe que va a
+// fallar. Ver esa migración para el razonamiento completo de por qué 200MB
+// y no los 500MB que se habían propuesto — resumen: `maxDuration=60` en
+// `POST /api/archivos` es la restricción real que fija el techo práctico.
+const MAX_BYTES = 200 * 1024 * 1024
 
 const ETIQUETA_FASE: Record<ProgresoSubida['fase'], string> = {
   preparando: 'Preparando…',
   subiendo: 'Subiendo archivo…',
-  registrando: 'Guardando en tu Drive…',
+  registrando: 'Preparando tu Drive…',
+  subiendo_drive: 'Subiendo a tu Drive…',
   analizando: 'Analizando con IA…',
 }
+
+// Fases con progreso de bytes REAL y observable — todas las demás muestran
+// la nota "esto puede tardar" en vez de fingir un porcentaje.
+// `subiendo_drive` se suma acá desde el sprint de upload resumable: antes
+// esa fase (entonces parte de "registrando") nunca tenía progreso real, el
+// servidor solo respondía al terminar. Para archivos chicos (multipart
+// simple) sigue siendo un solo salto a 100% — que también es honesto: esa
+// subida sí es atómica, no hay nada intermedio que reportar.
+const FASES_CON_PROGRESO_REAL: ReadonlySet<ProgresoSubida['fase']> = new Set(['subiendo', 'subiendo_drive'])
 
 type Props = {
   abierto: boolean
@@ -30,9 +43,11 @@ type Props = {
   error: string | null
   onCerrar: () => void
   onConfirmar: (materiaId: string | null, analizar: boolean) => void
+  /** Aborta la subida en curso — corta tanto el XHR a Storage como el fetch a Drive, y el servidor se entera (ver lib/archivos/api.ts). */
+  onCancelar: () => void
 }
 
-export default function ModalSubida({ abierto, archivo, materias, progreso, error, onCerrar, onConfirmar }: Props) {
+export default function ModalSubida({ abierto, archivo, materias, progreso, error, onCerrar, onConfirmar, onCancelar }: Props) {
   const montado = useMontado()
   const [materiaId, setMateriaId] = useState<string | null>(null)
   const [analizar, setAnalizar] = useState(true)
@@ -41,10 +56,11 @@ export default function ModalSubida({ abierto, archivo, materias, progreso, erro
 
   const subiendo = progreso !== null
   const demasiadoGrande = archivo !== null && archivo.size > MAX_BYTES
-  // El análisis solo se ofrece si el formato se puede leer de verdad — misma
-  // política que `politicaDeAnalisis` en el servidor. Ofrecerlo para un .docx
-  // sería prometer algo que va a fallar con un 422.
-  const analizable = archivo !== null && sePuedePrevisualizar(archivo.type, archivo.name)
+  // El análisis solo se ofrece si el formato se puede leer de verdad — mismo
+  // espejo que `politicaDeAnalisis` en el servidor (esAnalizable, NO
+  // sePuedePrevisualizar: Word/PowerPoint/Excel se analizan bien pero no
+  // tienen preview visual, ver el comentario de esAnalizable()).
+  const analizable = archivo !== null && esAnalizable(archivo.type, archivo.name)
 
   return createPortal(
     <AnimatePresence>
@@ -88,8 +104,7 @@ export default function ModalSubida({ abierto, archivo, materias, progreso, erro
 
             {demasiadoGrande ? (
               <Aviso tono="error">
-                Este archivo pesa {formatearTamano(archivo.size)} y el límite actual es de 50 MB. Subir archivos más grandes necesita <em>upload resumable</em>, que todavía no
-                está construido.
+                Este archivo pesa {formatearTamano(archivo.size)} y el límite actual es de {formatearTamano(MAX_BYTES)}.
               </Aviso>
             ) : subiendo ? (
               <div>
@@ -98,20 +113,26 @@ export default function ModalSubida({ abierto, archivo, materias, progreso, erro
                     <Loader2 size={13} className="animate-spin text-coral" />
                     {ETIQUETA_FASE[progreso.fase]}
                   </span>
-                  {progreso.fase === 'subiendo' && <span className="text-[11px] font-mono text-muted tabular-nums">{Math.round(progreso.porcentaje)}%</span>}
+                  {FASES_CON_PROGRESO_REAL.has(progreso.fase) && <span className="text-[11px] font-mono text-muted tabular-nums">{Math.round(progreso.porcentaje)}%</span>}
                 </div>
                 <div className="h-1.5 rounded-full bg-panel-2 overflow-hidden">
                   <motion.div
                     className="h-full rounded-full bg-coral"
-                    animate={{ width: progreso.fase === 'subiendo' ? `${progreso.porcentaje}%` : '100%' }}
+                    animate={{ width: FASES_CON_PROGRESO_REAL.has(progreso.fase) ? `${progreso.porcentaje}%` : '100%' }}
                     transition={{ duration: 0.25, ease: 'linear' }}
                   />
                 </div>
-                {/* Fases posteriores a la transferencia: el porcentaje real de
-                    bytes ya llegó a 100 y lo que falta es trabajo del servidor
-                    (Drive, Gemini) sin progreso observable. Se dice, en vez de
-                    fingir una barra que sigue avanzando sola. */}
-                {progreso.fase !== 'subiendo' && <p className="mt-2 text-[10px] text-muted leading-relaxed">Esto puede tardar unos segundos.</p>}
+                {/* Fases sin progreso de bytes observable (preparar carpeta,
+                    análisis de IA): se dice explícitamente que puede tardar,
+                    en vez de fingir un porcentaje que no existe. */}
+                {!FASES_CON_PROGRESO_REAL.has(progreso.fase) && <p className="mt-2 text-[10px] text-muted leading-relaxed">Esto puede tardar unos segundos.</p>}
+
+                <button
+                  onClick={onCancelar}
+                  className="mt-3 w-full rounded-full bg-panel-2/60 py-2.5 text-[12px] font-medium text-muted hover:text-paper hover:bg-panel-2 transition"
+                >
+                  Cancelar
+                </button>
               </div>
             ) : (
               <>

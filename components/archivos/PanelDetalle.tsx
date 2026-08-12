@@ -14,6 +14,7 @@ import { usePreferencias } from '@/lib/preferencias'
 import { diasHastaProximo } from '@/lib/horario/dias'
 import PreviewArchivo from './PreviewArchivo'
 import IconoArchivo from './IconoArchivo'
+import SeccionNotas from './SeccionNotas'
 
 type Props = {
   archivo: Archivo
@@ -109,6 +110,8 @@ export default function PanelDetalle({ archivo, materias, horario, analizando, o
             explícitamente no crear backend nuevo a mitad de camino). */}
         <p className="mt-3 text-[10px] text-muted/60 leading-relaxed">La materia se elige al subir el archivo. Cambiarla después todavía no está disponible.</p>
       </Seccion>
+
+      <SeccionNotas archivoId={archivo.id} />
 
       <ConversacionArchivo archivoId={archivo.id} puedePreguntar={archivo.drive_file_id !== null} />
 

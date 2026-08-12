@@ -6,6 +6,12 @@ import {
   escaparValorConsultaDrive,
   parsearEspacioUsado,
   MIME_TYPE_CARPETA,
+  construirInicioResumable,
+  construirContentRange,
+  construirContentRangeConsulta,
+  interpretarRespuestaChunk,
+  siguienteByteDesdeConsulta,
+  TAMANO_CHUNK_RESUMABLE,
 } from '../googleDrive'
 
 describe('interpretarErrorDrive', () => {
@@ -129,5 +135,74 @@ describe('parsearEspacioUsado', () => {
 
   it('usage no numérico → null', () => {
     expect(parsearEspacioUsado({ storageQuota: { usage: 'no-es-numero' } })).toBeNull()
+  })
+})
+
+describe('construirInicioResumable', () => {
+  it('arma la URL, headers y body exactos que pide el protocolo documentado de Google', () => {
+    const r = construirInicioResumable({ nombre: 'clase.mp3', mimeType: 'audio/mpeg', tamanoBytes: 123456, carpetaId: 'carpeta-1' })
+    expect(r.url).toBe('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink,size')
+    expect(r.headers['X-Upload-Content-Type']).toBe('audio/mpeg')
+    expect(r.headers['X-Upload-Content-Length']).toBe('123456')
+    expect(JSON.parse(r.body)).toEqual({ name: 'clase.mp3', mimeType: 'audio/mpeg', parents: ['carpeta-1'] })
+  })
+})
+
+describe('construirContentRange / construirContentRangeConsulta', () => {
+  it('formato exacto "bytes {inicio}-{fin}/{total}"', () => {
+    expect(construirContentRange(0, 8388607, 20000000)).toBe('bytes 0-8388607/20000000')
+  })
+
+  it('consulta de estado usa "*" en vez de un rango — Drive dice cuánto recibió', () => {
+    expect(construirContentRangeConsulta(20000000)).toBe('bytes */20000000')
+  })
+})
+
+describe('interpretarRespuestaChunk', () => {
+  it('308 con header Range → sigue desde el byte confirmado + 1', () => {
+    const r = interpretarRespuestaChunk(308, 'bytes=0-8388607', null, 8388607)
+    expect(r).toEqual({ estado: 'incompleto', siguienteByte: 8388608 })
+  })
+
+  it('308 SIN header Range (la red es la red) → mejor esfuerzo desde finEsperado + 1', () => {
+    const r = interpretarRespuestaChunk(308, null, null, 8388607)
+    expect(r).toEqual({ estado: 'incompleto', siguienteByte: 8388608 })
+  })
+
+  it('200/201 con id → completo, con webViewLink y tamaño reales', () => {
+    const cuerpo = { id: 'drive-id-1', webViewLink: 'https://drive.google.com/x', size: '20000000' }
+    expect(interpretarRespuestaChunk(200, null, cuerpo, 19999999)).toEqual({
+      estado: 'completo',
+      driveFileId: 'drive-id-1',
+      webViewLink: 'https://drive.google.com/x',
+      tamanoBytes: 20000000,
+    })
+    expect(interpretarRespuestaChunk(201, null, cuerpo, 19999999).estado).toBe('completo')
+  })
+
+  it('200 sin id → error de configuración, no un crash ni un id inventado', () => {
+    const r = interpretarRespuestaChunk(200, null, {}, 100)
+    expect(r).toEqual({ estado: 'error', clase: 'configuracion', detalle: 'Drive respondió éxito pero sin id de archivo' })
+  })
+
+  it('un error real (403/404/5xx) se interpreta con la misma lógica que el resto de Drive', () => {
+    const r = interpretarRespuestaChunk(404, null, { error: { code: 404, message: 'File not found.' } }, 100)
+    expect(r).toEqual({ estado: 'error', clase: 'no_encontrado', detalle: 'File not found.' })
+  })
+})
+
+describe('siguienteByteDesdeConsulta', () => {
+  it('con header Range → byte siguiente al último confirmado', () => {
+    expect(siguienteByteDesdeConsulta('bytes=0-41')).toBe(42)
+  })
+
+  it('sin header (Drive no recibió nada todavía) → reanuda desde 0', () => {
+    expect(siguienteByteDesdeConsulta(null)).toBe(0)
+  })
+})
+
+describe('TAMANO_CHUNK_RESUMABLE', () => {
+  it('es múltiplo de 256KB, como exige la documentación de Google', () => {
+    expect(TAMANO_CHUNK_RESUMABLE % (256 * 1024)).toBe(0)
   })
 })

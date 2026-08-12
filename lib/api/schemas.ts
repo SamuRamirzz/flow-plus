@@ -248,8 +248,12 @@ export const crearArchivoSchema = z.object({
 // sumo UN ancla, nunca las dos a la vez. Una nota sin ninguna ("suelta") es
 // un estado válido de producto, no un error — ver el comentario de la
 // migración de Fase 1.
-const anclaNotaValida = (v: { tareaId?: string | null; bloqueHorarioId?: string | null }) => !(v.tareaId && v.bloqueHorarioId)
-const MENSAJE_ANCLA_NOTA = 'Una nota no puede estar anclada a una tarea y a un bloque de horario a la vez'
+// Tercera ancla — `archivoId`, sumada cuando `notas` ganó la columna
+// correspondiente (migración 20260810000000). Mismo criterio "como mucho
+// una a la vez" que ya regía para tarea/bloque, ahora sobre las 3.
+const anclaNotaValida = (v: { tareaId?: string | null; bloqueHorarioId?: string | null; archivoId?: string | null }) =>
+  [v.tareaId, v.bloqueHorarioId, v.archivoId].filter((x) => x != null).length <= 1
+const MENSAJE_ANCLA_NOTA = 'Una nota solo puede estar anclada a una tarea, un bloque de horario o un archivo a la vez, nunca a más de uno'
 
 export const crearNotaSchema = z
   .object({
@@ -261,6 +265,7 @@ export const crearNotaSchema = z
     contenido: z.string().max(20000, 'La nota es demasiado larga').optional(),
     tareaId: z.string().uuid('tareaId no es un id válido').nullable().optional(),
     bloqueHorarioId: z.string().uuid('bloqueHorarioId no es un id válido').nullable().optional(),
+    archivoId: z.string().uuid('archivoId no es un id válido').nullable().optional(),
   })
   .refine(anclaNotaValida, { message: MENSAJE_ANCLA_NOTA, path: ['tareaId'] })
 
@@ -270,9 +275,10 @@ export const actualizarNotaSchema = z
     contenido: z.string().max(20000, 'La nota es demasiado larga').optional(),
     tareaId: z.string().uuid('tareaId no es un id válido').nullable().optional(),
     bloqueHorarioId: z.string().uuid('bloqueHorarioId no es un id válido').nullable().optional(),
+    archivoId: z.string().uuid('archivoId no es un id válido').nullable().optional(),
   })
   .refine(anclaNotaValida, { message: MENSAJE_ANCLA_NOTA, path: ['tareaId'] })
-  .refine((v) => v.titulo !== undefined || v.contenido !== undefined || v.tareaId !== undefined || v.bloqueHorarioId !== undefined, {
+  .refine((v) => v.titulo !== undefined || v.contenido !== undefined || v.tareaId !== undefined || v.bloqueHorarioId !== undefined || v.archivoId !== undefined, {
     message: 'No hay nada que actualizar',
   })
 
