@@ -8,9 +8,10 @@ type Props = {
   onToggle: (id: string, actual: boolean) => void
   onDelete: (id: string) => void
   onEdit: (id: string, nuevo: string) => void
+  onAbrirDetalle?: (tarea: Tarea) => void
 }
 
-export default function TaskTable({ tareas, materias, onToggle, onDelete, onEdit }: Props) {
+export default function TaskTable({ tareas, materias, onToggle, onDelete, onEdit, onAbrirDetalle }: Props) {
   const materiaDe = (id: string) => materias.find((m) => m.id === id)
   const pendientes = tareas.filter((t) => !t.completada).length
   const vencidas = tareas.filter((t) => !t.completada && t.fecha_entrega && new Date(t.fecha_entrega + 'T00:00:00') < new Date(new Date().toDateString())).length
@@ -49,6 +50,7 @@ export default function TaskTable({ tareas, materias, onToggle, onDelete, onEdit
               onToggle={() => onToggle(t.id, t.completada)}
               onDelete={() => onDelete(t.id)}
               onEdit={(nuevo) => onEdit(t.id, nuevo)}
+              onAbrirDetalle={onAbrirDetalle ? () => onAbrirDetalle(t) : undefined}
             />
           )
         })}

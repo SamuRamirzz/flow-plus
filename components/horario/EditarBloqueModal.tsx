@@ -8,6 +8,7 @@ import { TIPO_BLOQUE_OPCIONES, type BloqueHorario, type TipoBloqueHorario } from
 import MateriaPicker, { MATERIA_NUEVA } from '@/components/ui/MateriaPicker'
 import PremiumTimePicker from '@/components/ui/PremiumTimePicker'
 import SegmentedToggle from '@/components/ui/SegmentedToggle'
+import SeccionNotas from '@/components/notas/SeccionNotas'
 
 export type CambiosBloqueEditado = {
   tipo: TipoBloqueHorario
@@ -58,7 +59,7 @@ export default function EditarBloqueModal({ bloque, materias, guardando, onGuard
             animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
             exit={{ opacity: 0, scale: 0.97, y: 8, filter: 'blur(6px)' }}
             transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-[90vw] max-w-sm bg-panel-glass backdrop-blur-2xl rounded-2xl p-5 shadow-2xl"
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-[90vw] max-w-sm bg-panel-glass backdrop-blur-2xl rounded-2xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto"
           >
             {/* `key` fuerza un remount con estado fresco cada vez que se abre
                 un bloque DISTINTO — sin esto, useState seguiría mostrando
@@ -163,6 +164,12 @@ function Formulario({
           />
         </div>
       </div>
+
+      {/* Sprint Sistema de Notas Unificado — aplica a los 4 tipos de bloque
+          por igual (clase, ingreso, salida, descanso): el caso real que
+          motivó esto fue justo una nota en un bloque especial ("qué llevar
+          en el ingreso"), no solo en clases. */}
+      <SeccionNotas ancla={{ tipo: 'bloque_horario', id: bloque.id }} mensajeVacio="Aún no hay notas en este bloque." />
 
       <div className="flex items-center justify-between mt-5">
         <button

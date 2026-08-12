@@ -21,11 +21,12 @@ export async function POST(request: Request) {
   const parsed = crearNotaSchema.safeParse(body)
   if (!parsed.success) return errorDeValidacion(parsed.error)
 
-  const { titulo, contenido, tareaId, bloqueHorarioId, archivoId } = parsed.data
+  const { titulo, contenido, tareaId, bloqueHorarioId, archivoId, materiaId } = parsed.data
 
   // Mismo criterio que POST /api/archivos: zod no conoce al usuario
   // autenticado, y supabaseServer salta RLS — sin esto cualquier sesión
-  // podría anclar su nota a una tarea/bloque/archivo ajeno adivinando su id.
+  // podría anclar su nota a una tarea/bloque/archivo/materia ajena
+  // adivinando su id.
   if (tareaId) {
     const { data } = await supabaseServer.from('tareas').select('id').eq('id', tareaId).eq('user_id', userId).maybeSingle()
     if (!data) return errorJson('tareaId no corresponde a una tarea tuya', 400)
@@ -38,6 +39,10 @@ export async function POST(request: Request) {
     const { data } = await supabaseServer.from('archivos').select('id').eq('id', archivoId).eq('user_id', userId).maybeSingle()
     if (!data) return errorJson('archivoId no corresponde a un archivo tuyo', 400)
   }
+  if (materiaId) {
+    const { data } = await supabaseServer.from('materias').select('id').eq('id', materiaId).eq('user_id', userId).maybeSingle()
+    if (!data) return errorJson('materiaId no corresponde a una materia tuya', 400)
+  }
 
   const resultado = await crearNota(userId, {
     titulo: titulo ?? null,
@@ -45,6 +50,7 @@ export async function POST(request: Request) {
     tareaId: tareaId ?? null,
     bloqueHorarioId: bloqueHorarioId ?? null,
     archivoId: archivoId ?? null,
+    materiaId: materiaId ?? null,
     creadoPor: 'usuario',
   })
   if (!resultado.ok) return errorJson(resultado.error, 500)
@@ -61,18 +67,23 @@ export async function GET(request: Request) {
   const tareaId = searchParams.get('tareaId')
   const bloqueHorarioId = searchParams.get('bloqueHorarioId')
   const archivoId = searchParams.get('archivoId')
+  const materiaId = searchParams.get('materiaId')
   const sueltas = searchParams.get('sueltas') === '1'
 
+  // Sin ningún filtro (los 5 ausentes), esta query trae TODAS las notas del
+  // usuario sin importar su ancla — es exactamente lo que consume la vista
+  // unificada de Archivos (Parte C del Sprint Sistema de Notas Unificado,
+  // lib/notas/api.ts::cargarTodasLasNotas), sin necesitar un endpoint nuevo.
   let query = supabaseServer.from('notas').select('*').eq('user_id', userId).order('updated_at', { ascending: false })
   if (tareaId) query = query.eq('tarea_id', tareaId)
   if (bloqueHorarioId) query = query.eq('bloque_horario_id', bloqueHorarioId)
   if (archivoId) query = query.eq('archivo_id', archivoId)
-  // Notas "sueltas": ni tarea, ni bloque, ni archivo — la migración de Fase 1
-  // exige explícitamente que exista este modo, para que borrar una tarea
-  // (que desancla sus notas con `on delete set null`, nunca las destruye) no
-  // las deje invisibles para siempre. Mismo criterio aplicado ahora al
-  // tercer ancla.
-  if (sueltas) query = query.is('tarea_id', null).is('bloque_horario_id', null).is('archivo_id', null)
+  if (materiaId) query = query.eq('materia_id', materiaId)
+  // Notas "sueltas": ninguna de las 4 anclas — la migración original exige
+  // explícitamente que exista este modo, para que borrar una tarea (que
+  // desancla sus notas con `on delete set null`, nunca las destruye) no las
+  // deje invisibles para siempre. Mismo criterio aplicado ahora a las 4.
+  if (sueltas) query = query.is('tarea_id', null).is('bloque_horario_id', null).is('archivo_id', null).is('materia_id', null)
 
   const { data, error } = await query
   if (error) return errorJson(error.message, 500)

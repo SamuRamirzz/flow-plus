@@ -13,8 +13,10 @@ import AgendaSummary from '@/components/AgendaSummary'
 import PremiumSelect from '@/components/ui/PremiumSelect'
 import DayDetailModal from '@/components/ui/DayDetailModal'
 import NotificationBell from '@/components/ui/NotificationBell'
+import DetalleTareaModal from '@/components/DetalleTareaModal'
 import { IconoMateria } from '@/components/ui/iconosMateria'
 import BannerInvitado from '@/components/invitado/BannerInvitado'
+import type { Tarea } from '@/lib/types'
 
 // Sprint Home — CORRECCIÓN DE ALCANCE. El sprint anterior había fusionado el
 // pulso del día + informes de rendimiento DENTRO de esta pantalla; no era lo
@@ -49,6 +51,8 @@ export default function AgendaHome() {
   const [materiaFiltro, setMateriaFiltro] = useState('todas')
   const [diaModal, setDiaModal] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Sprint Sistema de Notas Unificado — detalle de tarea (con sus notas).
+  const [tareaDetalle, setTareaDetalle] = useState<Tarea | null>(null)
   // Cierre de Fase 1 — dedup semántico. `materiaOrigenId` es la materia
   // recién creada (la que desaparece si el usuario fusiona); `nombreNuevo`
   // es su nombre, para el texto del aviso. Un solo aviso a la vez: si se
@@ -185,7 +189,7 @@ export default function AgendaHome() {
             <PremiumSelect id="materia-filtro" options={materiaOpciones} value={materiaFiltro} onChange={setMateriaFiltro} />
           </div>
 
-          <TaskTable tareas={visibles} materias={materias} onToggle={toggle} onDelete={eliminarTarea} onEdit={editarTarea} />
+          <TaskTable tareas={visibles} materias={materias} onToggle={toggle} onDelete={eliminarTarea} onEdit={editarTarea} onAbrirDetalle={setTareaDetalle} />
         </div>
 
         <div className="flex flex-col gap-4">
@@ -201,6 +205,18 @@ export default function AgendaHome() {
         onClose={() => setDiaModal(null)}
         onToggle={toggle}
         onDelete={eliminarTarea}
+        onAbrirDetalle={(t) => {
+          // Nunca dos modales superpuestos: cierra DayDetailModal antes de
+          // abrir DetalleTareaModal.
+          setDiaModal(null)
+          setTareaDetalle(t)
+        }}
+      />
+
+      <DetalleTareaModal
+        tarea={tareaDetalle}
+        materiaNombre={materias.find((m) => m.id === tareaDetalle?.materia_id)?.nombre ?? '—'}
+        onCerrar={() => setTareaDetalle(null)}
       />
     </main>
   )

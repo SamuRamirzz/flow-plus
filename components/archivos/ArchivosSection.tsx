@@ -17,15 +17,28 @@ import ListaArchivos from './ListaArchivos'
 import PanelDetalle from './PanelDetalle'
 import ActividadIA from './ActividadIA'
 import ModalSubida from './ModalSubida'
+import VistaNotasUnificada from '@/components/notas/VistaNotasUnificada'
+import { cargarTodasLasNotas } from '@/lib/notas/api'
 
 export default function ArchivosSection() {
   const router = useRouter()
   const { notify } = useToast()
-  // Materias y horario salen del hook que ya usan /home y /agenda — el
-  // sidebar de carpetas y la fila "En tu horario" del panel necesitan
-  // exactamente esos dos datos, y duplicar su carga acá habría significado
-  // un tercer punto que mantener sincronizado.
-  const { materias, horario } = useDatosAgenda()
+  // Materias, tareas y horario salen del hook que ya usan /home y /agenda —
+  // el sidebar de carpetas, la fila "En tu horario" del panel, y ahora la
+  // vista unificada de Notas (Parte C) necesitan estos tres datos para
+  // resolver a qué está anclada cada nota. Duplicar su carga acá habría
+  // significado un cuarto punto que mantener sincronizado.
+  const { materias, tareas, horario } = useDatosAgenda()
+
+  // Sprint Sistema de Notas Unificado / Parte C — "Notas" es una vista de
+  // nivel superior, mutuamente excluyente con el grid de
+  // carpetas/lista/detalle (ver el comentario en SidebarCarpetas.tsx sobre
+  // por qué no es parte de CarpetaId). `totalNotas` solo alimenta el
+  // contador del sidebar — se carga una vez al montar, sin bloquear el
+  // resto de la pantalla si falla (el catch silencioso dentro de
+  // cargarTodasLasNotas ya devuelve `ok:false`, acá solo se ignora).
+  const [vistaNotas, setVistaNotas] = useState(false)
+  const [totalNotas, setTotalNotas] = useState(0)
 
   const [archivos, setArchivos] = useState<Archivo[]>([])
   const [espacio, setEspacio] = useState<EspacioDrive | null>(null)
@@ -68,14 +81,21 @@ export default function ArchivosSection() {
       // El espacio va por separado y su fallo NO tumba la pantalla: si Drive
       // no está vinculado, la lista de archivos igual se puede mostrar (las
       // filas viven en Postgres), y el indicador explica el problema por su
-      // cuenta.
-      const [rArchivos, rActividad, rEspacio] = await Promise.all([cargarArchivos(), cargarActividad(), cargarEspacio()])
+      // cuenta. `rNotas` sigue el mismo criterio — solo alimenta un contador,
+      // nunca bloquea nada si falla.
+      const [rArchivos, rActividad, rEspacio, rNotas] = await Promise.all([
+        cargarArchivos(),
+        cargarActividad(),
+        cargarEspacio(),
+        cargarTodasLasNotas(),
+      ])
       if (!activo) return
       if (rArchivos.ok) setArchivos(rArchivos.datos)
       else setErrorCarga(rArchivos.error)
       if (rActividad.ok) setActividad(rActividad.datos)
       if (rEspacio.ok) setEspacio(rEspacio.datos)
       else setErrorEspacio(rEspacio.error)
+      if (rNotas.ok) setTotalNotas(rNotas.datos.length)
       setCargando(false)
     })()
     return () => {
@@ -215,45 +235,71 @@ export default function ArchivosSection() {
 
         {errorCarga && <p className="mt-4 rounded-2xl bg-danger/10 px-4 py-3 text-[13px] text-danger">{errorCarga}</p>}
 
-        {/* ── Cuerpo: carpetas · lista · detalle ──────────────────────── */}
-        <div className={`mt-5 grid gap-4 ${seleccionado ? 'lg:grid-cols-[15rem_minmax(0,1fr)_21rem]' : 'lg:grid-cols-[15rem_minmax(0,1fr)]'}`}>
+        {/* ── Cuerpo: carpetas · (lista · detalle) o Notas ────────────── */}
+        <div className={`mt-5 grid gap-4 ${seleccionado && !vistaNotas ? 'lg:grid-cols-[15rem_minmax(0,1fr)_21rem]' : 'lg:grid-cols-[15rem_minmax(0,1fr)]'}`}>
           <div className="hidden lg:block">
-            <SidebarCarpetas materias={materias} archivos={archivos} seleccionada={carpeta} onSeleccionar={setCarpeta} />
-          </div>
-
-          <div className="min-w-0">
-            <ListaArchivos
-              archivos={visibles}
+            <SidebarCarpetas
               materias={materias}
-              vista={vista}
-              seleccionadoId={seleccionadoId}
-              cargando={cargando}
-              hayFiltro={hayFiltro}
-              onSeleccionar={(a) => setSeleccionadoId((id) => (id === a.id ? null : a.id))}
-              onAnalizar={(a) => void alAnalizar(a)}
-              onEliminar={(a) => void alEliminar(a)}
+              archivos={archivos}
+              seleccionada={carpeta}
+              onSeleccionar={(c) => {
+                setVistaNotas(false)
+                setCarpeta(c)
+              }}
+              notasActiva={vistaNotas}
+              onAbrirNotas={() => {
+                setVistaNotas(true)
+                setSeleccionadoId(null)
+              }}
+              totalNotas={totalNotas}
             />
-
-            {actividad.length > 0 && (
-              <div className="mt-4">
-                <ActividadIA actividad={actividad} onAbrir={setSeleccionadoId} />
-              </div>
-            )}
           </div>
 
-          <AnimatePresence>
-            {seleccionado && (
-              <PanelDetalle
-                key={seleccionado.id}
-                archivo={seleccionado}
-                materias={materias}
-                horario={horario}
-                analizando={analizandoId === seleccionado.id}
-                onCerrar={() => setSeleccionadoId(null)}
-                onAnalizar={() => void alAnalizar(seleccionado)}
-              />
-            )}
-          </AnimatePresence>
+          {vistaNotas ? (
+            <VistaNotasUnificada
+              contexto={{ materias, tareas, horario, archivos }}
+              onAbrirArchivo={(archivoId) => {
+                setVistaNotas(false)
+                setSeleccionadoId(archivoId)
+              }}
+            />
+          ) : (
+            <>
+              <div className="min-w-0">
+                <ListaArchivos
+                  archivos={visibles}
+                  materias={materias}
+                  vista={vista}
+                  seleccionadoId={seleccionadoId}
+                  cargando={cargando}
+                  hayFiltro={hayFiltro}
+                  onSeleccionar={(a) => setSeleccionadoId((id) => (id === a.id ? null : a.id))}
+                  onAnalizar={(a) => void alAnalizar(a)}
+                  onEliminar={(a) => void alEliminar(a)}
+                />
+
+                {actividad.length > 0 && (
+                  <div className="mt-4">
+                    <ActividadIA actividad={actividad} onAbrir={setSeleccionadoId} />
+                  </div>
+                )}
+              </div>
+
+              <AnimatePresence>
+                {seleccionado && (
+                  <PanelDetalle
+                    key={seleccionado.id}
+                    archivo={seleccionado}
+                    materias={materias}
+                    horario={horario}
+                    analizando={analizandoId === seleccionado.id}
+                    onCerrar={() => setSeleccionadoId(null)}
+                    onAnalizar={() => void alAnalizar(seleccionado)}
+                  />
+                )}
+              </AnimatePresence>
+            </>
+          )}
         </div>
       </div>
 

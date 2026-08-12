@@ -5,9 +5,23 @@ import type { TipoRespuestaGestion } from './types'
 const PRIORIDADES: HomeworkPriority[] = ['baja', 'media', 'alta']
 const TIPOS: HomeworkTaskType[] = ['ejercicios', 'examen', 'ensayo', 'lectura', 'proyecto', 'otro']
 const TIPOS_RESPUESTA: TipoRespuestaGestion[] = ['operaciones', 'conversacional']
-const TIPOS_OPERACION = ['crear', 'modificar', 'borrar', 'ambiguo', 'sin_coincidencias', 'crear_nota'] as const
+// Sprint Sistema de Notas Unificado (Parte E) — dos tipos nuevos:
+// 'editar_nota'/'borrar_nota', mismo criterio de "reusar campos existentes
+// con sentinela" que ya rige el resto de este schema.
+const TIPOS_OPERACION = ['crear', 'modificar', 'borrar', 'ambiguo', 'sin_coincidencias', 'crear_nota', 'editar_nota', 'borrar_nota'] as const
 type TipoOperacionRaw = (typeof TIPOS_OPERACION)[number]
 const ACCIONES_ORIGINALES = ['modificar', 'borrar'] as const
+// Sprint Sistema de Notas Unificado (Parte E) — a qué lista de índices
+// apunta `indiceObjetivo`/`indicesCandidatos` cuando `tipo` es
+// 'crear_nota'/'editar_nota'/'borrar_nota'. 'tarea'/'bloque_horario'/
+// 'archivo' solo aplican a 'crear_nota' (una nota nueva puede anclarse a
+// cualquiera de las tres); 'nota' solo aplica a 'editar_nota'/'borrar_nota'
+// (esas dos siempre resuelven contra una nota YA existente, nunca contra
+// dónde anclarla). 'archivo' se agregó DESPUÉS de verificar contra Gemini
+// real que sin él, "agrega una nota a mi archivo X" devolvía
+// sin_coincidencias siempre — el encargo asumía que ya funcionaba, no era
+// cierto, y se cerró en el mismo sprint en vez de dejarlo pendiente.
+const OBJETIVOS_TIPO = ['tarea', 'bloque_horario', 'archivo', 'nota'] as const
 
 // Máximo de operaciones por respuesta — tope defensivo, ver comentario en
 // el parser (`.slice(0, MAX_OPERACIONES)`) sobre por qué existe.
@@ -28,19 +42,25 @@ const MAX_OPERACIONES = 20
 // defensiva sin importar qué límite respete o no el modelo.
 //
 // Sprint Archivos / Fase 4.2 — se agregó `tipo:'crear_nota'` + UN campo
-// nuevo requerido (`contenidoNota`), de 12 a 13 propiedades. Se trata como
+// nuevo requerido (`contenidoNota`), de 12 a 13 propiedades. Se trató como
 // hipótesis NO verificada, no como hecho: el precedente de degeneración de
 // arriba fue con ~16 campos mayormente OPCIONALES agregados a operaciones ya
 // existentes; esto es un campo siempre-requerido-con-sentinel agregado por
-// un miembro NUEVO de una unión discriminada — estructuralmente distinto,
-// pero nadie en este código probó esa distinción contra el modelo real antes
-// de este cambio. Se verificó con un stress test de 15-20 llamadas reales
-// variando todos los tipos de operación en la misma sesión (ver el registro
-// de verificación de este sprint). `crear_nota` reusa `descripcion`/
-// `indiceObjetivo`/`indicesCandidatos` — los mismos tres campos que ya usan
-// modificar/borrar/ambiguo para resolver a qué tarea se refiere el usuario —
-// así que no hizo falta un campo nuevo para eso, solo para el contenido de
-// la nota en sí.
+// un miembro NUEVO de una unión discriminada — estructuralmente distinto.
+// Se verificó con un stress test de 15-20 llamadas reales.
+//
+// Sprint Sistema de Notas Unificado (Parte E) — segunda extensión, mismo
+// criterio de verificar antes de asumir: se agregó `objetivoTipo` (UN campo
+// nuevo, 13→14) + DOS miembros nuevos de la unión (`editar_nota`,
+// `borrar_nota`, que no suman campos propios — reusan `indiceObjetivo`/
+// `indicesCandidatos`/`objetivoTipo` para resolver la nota, y
+// `contenidoNota` para el contenido nuevo en `editar_nota`). `crear_nota`
+// gana la capacidad de anclarse también a un bloque de horario (no solo a
+// una tarea) — `objetivoTipo` decide contra qué lista (tareaExistentes,
+// bloquesExistentes o notasExistentes, según el `tipo` de operación) se
+// interpretan los índices. Verificado con un stress test propio de este
+// sprint, incluyendo bloques especiales (ingreso/salida/descanso) — ver el
+// registro de verificación.
 export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
   type: 'object',
   properties: {
@@ -65,7 +85,7 @@ export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
             type: 'string',
             enum: TIPOS_OPERACION,
             description:
-              '"crear" para una tarea nueva. "modificar"/"borrar" cuando hay UNA sola tarea existente clara. "ambiguo" cuando la referencia calza con más de una tarea existente. "sin_coincidencias" cuando el usuario se refiere a una tarea que no está en la lista de tareas existentes. "crear_nota" cuando el usuario pide agregar una nota/anotación/comentario a una tarea existente (ej. "agrega una nota a mi tarea de Cálculo diciendo que faltó el punto 3") — identifica la tarea igual que en "modificar"/"borrar" (indiceObjetivo o indicesCandidatos), NUNCA crees una tarea nueva solo para adjuntarle una nota.',
+              '"crear" para una tarea nueva. "modificar"/"borrar" cuando hay UNA sola tarea existente clara. "ambiguo" cuando la referencia calza con más de una tarea existente. "sin_coincidencias" cuando el usuario se refiere a una tarea que no está en la lista de tareas existentes. "crear_nota" cuando el usuario pide agregar una nota/anotación/comentario a una tarea, a un bloque de horario, o a un archivo existente (ej. "agrega una nota a mi tarea de Cálculo diciendo que faltó el punto 3", "agrega una nota a mi clase de Inglés de los lunes", "pon una nota en mi bloque de ingreso", "agrega una nota a mi archivo Collective Nouns") — identifica el objetivo con indiceObjetivo/indicesCandidatos, indicando en objetivoTipo si son índices de la lista de TAREAS, de BLOQUES DE HORARIO, o de ARCHIVOS. "editar_nota"/"borrar_nota" cuando el usuario pide cambiar o quitar una nota que YA EXISTE (ej. "cambia la nota de mi tarea de Historia a...", "borra la nota de mi clase de Inglés") — identifica la nota con indiceObjetivo/indicesCandidatos sobre la lista de NOTAS EXISTENTES (objetivoTipo "nota"). NUNCA crees una tarea nueva solo para adjuntarle una nota.',
           },
           titulo: {
             type: 'string',
@@ -103,18 +123,24 @@ export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
           descripcion: {
             type: 'string',
             description:
-              'Si tipo es "modificar"/"borrar"/"ambiguo"/"sin_coincidencias"/"crear_nota": descripción breve en español de a qué tarea se refería el usuario. Cadena vacía si tipo es "crear".',
+              'Si tipo es "modificar"/"borrar"/"ambiguo"/"sin_coincidencias"/"crear_nota"/"editar_nota"/"borrar_nota": descripción breve en español de a qué se refería el usuario. Cadena vacía si tipo es "crear".',
           },
           indiceObjetivo: {
             type: 'number',
             description:
-              'Si tipo es "modificar", "borrar" o "crear_nota": el índice (de la lista numerada de tareas existentes que se te dio) de la tarea a la que te refieres. -1 en cualquier otro caso.',
+              'Si tipo es "modificar", "borrar", "crear_nota", "editar_nota" o "borrar_nota": el índice (de la lista correspondiente según objetivoTipo) del objetivo al que te refieres. -1 en cualquier otro caso, o si más de uno podría ser (usa indicesCandidatos en ese caso).',
           },
           indicesCandidatos: {
             type: 'array',
             items: { type: 'number' },
             description:
-              'Si tipo es "ambiguo", o si tipo es "crear_nota" y más de una tarea existente podría ser la referida: todos los índices de tareas existentes que podrían ser. Vacío en cualquier otro caso.',
+              'Si tipo es "ambiguo", o si tipo es "crear_nota"/"editar_nota"/"borrar_nota" y más de un objetivo podría ser el referido: todos los índices posibles (de la lista correspondiente según objetivoTipo). Vacío en cualquier otro caso.',
+          },
+          objetivoTipo: {
+            type: 'string',
+            enum: [...OBJETIVOS_TIPO, ''],
+            description:
+              'SOLO si tipo es "crear_nota"/"editar_nota"/"borrar_nota": a qué lista pertenecen indiceObjetivo/indicesCandidatos. Para "crear_nota": "tarea" si el usuario se refiere a una tarea existente, "bloque_horario" si se refiere a una clase/ingreso/salida/descanso de su horario, "archivo" si se refiere a un archivo suyo ya subido. Para "editar_nota"/"borrar_nota": SIEMPRE "nota" (resuelves contra la lista de notas ya existentes, nunca contra tareas, bloques ni archivos). Cadena vacía en cualquier otro caso.',
           },
           accionOriginal: {
             type: 'string',
@@ -123,7 +149,8 @@ export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
           },
           contenidoNota: {
             type: 'string',
-            description: 'Solo si tipo es "crear_nota": el contenido de la nota, en español, redactado en base a lo que pidió el usuario. Cadena vacía en cualquier otro caso.',
+            description:
+              'Si tipo es "crear_nota": el contenido de la nota nueva. Si tipo es "editar_nota": el contenido NUEVO que reemplaza al anterior. En español, redactado en base a lo que pidió el usuario. Cadena vacía en cualquier otro caso (incluido "borrar_nota", que no necesita contenido).',
           },
         },
         required: [
@@ -138,6 +165,7 @@ export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
           'descripcion',
           'indiceObjetivo',
           'indicesCandidatos',
+          'objetivoTipo',
           'accionOriginal',
           'contenidoNota',
         ],
@@ -180,20 +208,36 @@ export type OperacionRefRaw = {
 
 export type OperacionSinCoincidenciasRaw = { tipo: 'sin_coincidencias'; descripcion: string }
 
-// Sprint Archivos / Fase 4.2 — mismos tres campos de resolución que
-// OperacionRefRaw (descripcion/indiceObjetivo/indicesCandidatos: la misma
-// tarea real a la que ya sabe apuntar modificar/borrar), más el contenido de
-// la nota. Deliberadamente NO forma parte de `OperacionTarea` (types.ts) ni
-// de lo que resolverOperaciones() devuelve — ver resolver.ts::resolverNotas.
+// Sprint Archivos / Fase 4.2, extendido en el Sprint Sistema de Notas
+// Unificado — mismos tres campos de resolución que OperacionRefRaw
+// (descripcion/indiceObjetivo/indicesCandidatos), más `objetivoTipo` (a qué
+// lista pertenecen esos índices: 'tarea', 'bloque_horario' o 'archivo') y
+// el contenido de la nota. Deliberadamente NO forma parte de
+// `OperacionTarea` (types.ts) ni de lo que resolverOperaciones() devuelve —
+// ver resolver.ts::resolverNotas.
 export type OperacionCrearNotaRaw = {
   tipo: 'crear_nota'
   descripcion: string
   indiceObjetivo: number | null
   indicesCandidatos: number[]
+  objetivoTipo: 'tarea' | 'bloque_horario' | 'archivo' | null
   contenidoNota: string
 }
 
-export type OperacionRaw = OperacionCrearRaw | OperacionRefRaw | OperacionSinCoincidenciasRaw | OperacionCrearNotaRaw
+// Sprint Sistema de Notas Unificado — `editar_nota`/`borrar_nota` comparten
+// exactamente esta forma (mismos campos de resolución, `objetivoTipo`
+// siempre 'nota'; `contenidoNuevo` solo tiene sentido cuando `accion` es
+// 'editar', viene `null` en 'borrar'). Un solo tipo para las dos evita
+// duplicar la lógica de resolución en el parser/resolver.
+export type OperacionNotaExistenteRaw = {
+  tipo: 'editar_nota' | 'borrar_nota'
+  descripcion: string
+  indiceObjetivo: number | null
+  indicesCandidatos: number[]
+  contenidoNuevo: string | null
+}
+
+export type OperacionRaw = OperacionCrearRaw | OperacionRefRaw | OperacionSinCoincidenciasRaw | OperacionCrearNotaRaw | OperacionNotaExistenteRaw
 
 export type TaskManagementParsedOutput = {
   tipoRespuesta: TipoRespuestaGestion
@@ -293,6 +337,7 @@ export class TaskManagementOutputParser implements OutputParser<TaskManagementPa
         if (tipo === 'crear_nota') {
           const contenidoNota = normalizar(t.contenidoNota)
           if (!contenidoNota) continue
+          const objetivoTipoRaw = t.objetivoTipo
           operaciones.push({
             tipo: 'crear_nota',
             descripcion: normalizar(t.descripcion) ?? 'una tarea',
@@ -300,7 +345,30 @@ export class TaskManagementOutputParser implements OutputParser<TaskManagementPa
             indicesCandidatos: Array.isArray(t.indicesCandidatos)
               ? t.indicesCandidatos.map(indiceValido).filter((n): n is number => n !== null)
               : [],
+            // Default 'tarea': mismo comportamiento de siempre para una
+            // respuesta que no incluya el campo (compatibilidad con
+            // cualquier caché/reintento de una llamada de antes de este
+            // sprint) — 'tarea' era la única opción posible entonces.
+            objetivoTipo: objetivoTipoRaw === 'bloque_horario' || objetivoTipoRaw === 'archivo' ? objetivoTipoRaw : 'tarea',
             contenidoNota,
+          })
+          continue
+        }
+
+        if (tipo === 'editar_nota' || tipo === 'borrar_nota') {
+          // 'editar_nota' sin contenido nuevo no tiene sentido (no habría
+          // nada que cambiar) — se descarta, mismo criterio que 'crear_nota'
+          // sin contenidoNota. 'borrar_nota' nunca necesita contenido.
+          const contenidoNuevo = normalizar(t.contenidoNota)
+          if (tipo === 'editar_nota' && !contenidoNuevo) continue
+          operaciones.push({
+            tipo,
+            descripcion: normalizar(t.descripcion) ?? 'una nota',
+            indiceObjetivo: indiceValido(t.indiceObjetivo),
+            indicesCandidatos: Array.isArray(t.indicesCandidatos)
+              ? t.indicesCandidatos.map(indiceValido).filter((n): n is number => n !== null)
+              : [],
+            contenidoNuevo: tipo === 'editar_nota' ? contenidoNuevo : null,
           })
           continue
         }

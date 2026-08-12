@@ -79,20 +79,6 @@ export type MensajeArchivo = {
 }
 
 /** Fila cruda de `notas` — mismo criterio snake_case que `Archivo`. */
-export type Nota = {
-  id: string
-  titulo: string | null
-  contenido: string
-  tarea_id: string | null
-  bloque_horario_id: string | null
-  archivo_id: string | null
-  drive_file_id: string | null
-  drive_sync_error: string | null
-  creado_por: 'usuario' | 'ia'
-  created_at: string
-  updated_at: string
-}
-
 /** Estado de la vinculación con Google Drive (`GET /api/integraciones/google-drive`). */
 export type EstadoDrive = {
   estado: 'vinculada' | 'sin_vinculacion' | 'revocada' | string

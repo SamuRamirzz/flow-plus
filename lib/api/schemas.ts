@@ -291,9 +291,13 @@ export const crearArchivoSchema = z.object({
 // Tercera ancla — `archivoId`, sumada cuando `notas` ganó la columna
 // correspondiente (migración 20260810000000). Mismo criterio "como mucho
 // una a la vez" que ya regía para tarea/bloque, ahora sobre las 3.
-const anclaNotaValida = (v: { tareaId?: string | null; bloqueHorarioId?: string | null; archivoId?: string | null }) =>
-  [v.tareaId, v.bloqueHorarioId, v.archivoId].filter((x) => x != null).length <= 1
-const MENSAJE_ANCLA_NOTA = 'Una nota solo puede estar anclada a una tarea, un bloque de horario o un archivo a la vez, nunca a más de uno'
+// Cuarta ancla — `materiaId` (Sprint Sistema de Notas Unificado, migración
+// 20260812000000): una nota general de la materia, no de una clase puntual
+// ni de una tarea concreta. Mismo criterio "como mucho una a la vez", ahora
+// sobre las 4.
+const anclaNotaValida = (v: { tareaId?: string | null; bloqueHorarioId?: string | null; archivoId?: string | null; materiaId?: string | null }) =>
+  [v.tareaId, v.bloqueHorarioId, v.archivoId, v.materiaId].filter((x) => x != null).length <= 1
+const MENSAJE_ANCLA_NOTA = 'Una nota solo puede estar anclada a una tarea, un bloque de horario, un archivo o una materia a la vez, nunca a más de uno'
 
 export const crearNotaSchema = z
   .object({
@@ -306,6 +310,7 @@ export const crearNotaSchema = z
     tareaId: z.string().uuid('tareaId no es un id válido').nullable().optional(),
     bloqueHorarioId: z.string().uuid('bloqueHorarioId no es un id válido').nullable().optional(),
     archivoId: z.string().uuid('archivoId no es un id válido').nullable().optional(),
+    materiaId: z.string().uuid('materiaId no es un id válido').nullable().optional(),
   })
   .refine(anclaNotaValida, { message: MENSAJE_ANCLA_NOTA, path: ['tareaId'] })
 
@@ -316,11 +321,19 @@ export const actualizarNotaSchema = z
     tareaId: z.string().uuid('tareaId no es un id válido').nullable().optional(),
     bloqueHorarioId: z.string().uuid('bloqueHorarioId no es un id válido').nullable().optional(),
     archivoId: z.string().uuid('archivoId no es un id válido').nullable().optional(),
+    materiaId: z.string().uuid('materiaId no es un id válido').nullable().optional(),
   })
   .refine(anclaNotaValida, { message: MENSAJE_ANCLA_NOTA, path: ['tareaId'] })
-  .refine((v) => v.titulo !== undefined || v.contenido !== undefined || v.tareaId !== undefined || v.bloqueHorarioId !== undefined || v.archivoId !== undefined, {
-    message: 'No hay nada que actualizar',
-  })
+  .refine(
+    (v) =>
+      v.titulo !== undefined ||
+      v.contenido !== undefined ||
+      v.tareaId !== undefined ||
+      v.bloqueHorarioId !== undefined ||
+      v.archivoId !== undefined ||
+      v.materiaId !== undefined,
+    { message: 'No hay nada que actualizar' }
+  )
 
 // Sprint Archivos / Fase 7 — una pregunta sobre un archivo concreto. El
 // archivo NO viaja en el body: se identifica por el `[id]` de la ruta y el

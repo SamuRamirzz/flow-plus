@@ -4,8 +4,16 @@ import { aiConfig } from '@/lib/ai/config'
 import { hoyEnZona, ZONA_HORARIA_POR_DEFECTO } from '@/lib/ai/context/fecha'
 import { GEMINI_PROVIDER_ID, normalizarAdjuntos, type ConversationTurnInput, type StructuredProviderMetadata } from '@/lib/ai/providers/gemini'
 import { TASK_MANAGEMENT_OUTPUT_SCHEMA, TaskManagementOutputParser } from './schema'
-import { resolverOperaciones, resolverNotas } from './resolver'
-import { TASK_MANAGEMENT_AGENT_ID, TASK_MANAGEMENT_AGENT_TRIGGER_EVENT, type TareaContexto, type TaskManagementAgentOutput } from './types'
+import { resolverOperaciones, resolverNotas, resolverOperacionesNotaExistente } from './resolver'
+import {
+  TASK_MANAGEMENT_AGENT_ID,
+  TASK_MANAGEMENT_AGENT_TRIGGER_EVENT,
+  type TareaContexto,
+  type BloqueHorarioContexto,
+  type ArchivoContexto,
+  type NotaContextoIA,
+  type TaskManagementAgentOutput,
+} from './types'
 
 const definition: AIAgentDefinition = {
   id: TASK_MANAGEMENT_AGENT_ID,
@@ -65,6 +73,45 @@ function normalizarTareasExistentes(metadata: Record<string, unknown> | undefine
       t !== null &&
       typeof (t as TareaContexto).id === 'string' &&
       typeof (t as TareaContexto).titulo === 'string'
+  )
+}
+
+// Sprint Sistema de Notas Unificado (Parte E) — mismo criterio defensivo
+// que normalizarTareasExistentes: cualquier forma inesperada se descarta en
+// silencio, el agente nunca debe caerse por un metadata mal formado.
+function normalizarBloquesExistentes(metadata: Record<string, unknown> | undefined): BloqueHorarioContexto[] {
+  const lista = metadata?.bloquesExistentes
+  if (!Array.isArray(lista)) return []
+  return lista.filter(
+    (b): b is BloqueHorarioContexto =>
+      typeof b === 'object' &&
+      b !== null &&
+      typeof (b as BloqueHorarioContexto).id === 'string' &&
+      typeof (b as BloqueHorarioContexto).nombre === 'string' &&
+      typeof (b as BloqueHorarioContexto).diaSemana === 'number'
+  )
+}
+
+function normalizarNotasExistentesContexto(metadata: Record<string, unknown> | undefined): NotaContextoIA[] {
+  const lista = metadata?.notasExistentes
+  if (!Array.isArray(lista)) return []
+  return lista.filter(
+    (n): n is NotaContextoIA =>
+      typeof n === 'object' &&
+      n !== null &&
+      typeof (n as NotaContextoIA).id === 'string' &&
+      typeof (n as NotaContextoIA).anclaTexto === 'string' &&
+      typeof (n as NotaContextoIA).contenido === 'string'
+  )
+}
+
+// Sprint Sistema de Notas Unificado (Parte E, cierre del gap de "archivo
+// existente") — mismo criterio defensivo que los otros normalizadores.
+function normalizarArchivosExistentes(metadata: Record<string, unknown> | undefined): ArchivoContexto[] {
+  const lista = metadata?.archivosExistentes
+  if (!Array.isArray(lista)) return []
+  return lista.filter(
+    (a): a is ArchivoContexto => typeof a === 'object' && a !== null && typeof (a as ArchivoContexto).id === 'string' && typeof (a as ArchivoContexto).nombre === 'string'
   )
 }
 
@@ -141,6 +188,34 @@ function listarTareasParaPrompt(tareas: TareaContexto[]): string {
     .join('\n')
 }
 
+const DIA_NOMBRE: Record<number, string> = { 1: 'lunes', 2: 'martes', 3: 'miércoles', 4: 'jueves', 5: 'viernes', 6: 'sábado', 7: 'domingo' }
+
+// Sprint Sistema de Notas Unificado (Parte E) — mismo criterio que
+// listarTareasParaPrompt: índices 0-based, el modelo los usa tal cual para
+// indiceObjetivo/indicesCandidatos cuando objetivoTipo es 'bloque_horario'.
+// `null` (no una lista vacía en texto) cuando el usuario no tiene ningún
+// bloque, para poder omitir la sección entera del prompt.
+function listarBloquesParaPrompt(bloques: BloqueHorarioContexto[]): string | null {
+  if (bloques.length === 0) return null
+  return bloques.map((b, i) => `${i}: "${b.nombre}" — ${DIA_NOMBRE[b.diaSemana] ?? '?'}${b.horaInicio ? ` ${b.horaInicio}` : ''}`).join('\n')
+}
+
+// Sprint Sistema de Notas Unificado (Parte E, cierre del gap de "archivo
+// existente") — mismo criterio: índices 0-based propios de ESTA lista,
+// usados cuando objetivoTipo es 'archivo' (solo aplica a crear_nota).
+function listarArchivosParaPrompt(archivos: ArchivoContexto[]): string | null {
+  if (archivos.length === 0) return null
+  return archivos.map((a, i) => `${i}: "${a.nombre}"`).join('\n')
+}
+
+// Sprint Sistema de Notas Unificado (Parte E) — mismo criterio: índices
+// 0-based propios de ESTA lista (independiente de los de tareas/bloques),
+// usados cuando objetivoTipo es 'nota' (editar_nota/borrar_nota).
+function listarNotasExistentesParaPrompt(notas: NotaContextoIA[]): string | null {
+  if (notas.length === 0) return null
+  return notas.map((n, i) => `${i}: (${n.anclaTexto}) "${n.contenido}"`).join('\n')
+}
+
 // Ajuste (post 7.5) Parte 1-bis — `fechaISO` YA llega resuelta en zona
 // horaria (ver la llamada en run(), vía hoyEnZona), nunca se calcula acá
 // dentro. Antes esta función recibía un `Date` crudo y hacía
@@ -160,7 +235,10 @@ function construirInstruccionSistema(
   hayHistorial: boolean,
   hayAdjunto: boolean,
   notasTexto: string | null,
-  conversacionesTexto: string | null
+  conversacionesTexto: string | null,
+  bloquesTexto: string | null,
+  notasExistentesTexto: string | null,
+  archivosTexto: string | null
 ): string {
   return [
     'Eres el motor de gestión de tareas de Flow+, una app de agenda académica para estudiantes.',
@@ -196,6 +274,24 @@ function construirInstruccionSistema(
           notasTexto,
         ]
       : []),
+    ...(bloquesTexto
+      ? [
+          'Estos son los bloques del horario del usuario (clases, y bloques especiales de ingreso/salida/descanso), numerados con SU PROPIO índice — independiente del de tareas de arriba. Usa este índice SOLO cuando objetivoTipo sea "bloque_horario":',
+          bloquesTexto,
+        ]
+      : []),
+    ...(archivosTexto
+      ? [
+          'Estos son los archivos que el usuario ya tiene subidos, numerados con SU PROPIO índice — independiente de los de arriba. Usa este índice SOLO cuando objetivoTipo sea "archivo":',
+          archivosTexto,
+        ]
+      : []),
+    ...(notasExistentesTexto
+      ? [
+          'Estas son las notas que el usuario ya tiene guardadas (de tareas, bloques de horario, archivos o materias), numeradas con SU PROPIO índice — independiente de los de arriba. Usa este índice SOLO para "editar_nota"/"borrar_nota" (objetivoTipo siempre "nota" en esos dos casos):',
+          notasExistentesTexto,
+        ]
+      : []),
     ...(conversacionesTexto
       ? [
           'El sistema de Flow+ (no vos) registró y preparó automáticamente estos resúmenes de sesiones anteriores de este usuario con el asistente, más recientes primero. Es información real e ingresada por el sistema, igual que la lista de tareas de arriba — no es tu memoria personal, es un dato que se te está entregando ahora mismo. Si el usuario pregunta algo relacionado con una sesión anterior, respondé usando esta información directamente, con naturalidad (nunca dupliques la existencia de esta información ni digas frases como "no tengo memoria" o "no guardo historial" — el sistema SÍ lo guardó y te lo está pasando):',
@@ -209,8 +305,10 @@ function construirInstruccionSistema(
     '- tipo "modificar" o "borrar": cuando el texto se refiere CLARAMENTE a UNA sola tarea de la lista de arriba — indiceObjetivo es su índice. Si es "modificar", pon en titulo/materia/fecha/prioridad/completada SOLO los campos que cambian (el resto en ""); completada es "true"/"false" si se pide marcar como completada/pendiente, "" si no. Si es "borrar", todos esos campos van vacíos — solo importa indiceObjetivo.',
     '- tipo "ambiguo": cuando la referencia del usuario ("la de matemáticas") calza con MÁS DE UNA tarea de la lista. indicesCandidatos lleva todos los índices que podrían ser, accionOriginal indica si el usuario quería modificar o borrar, y si es modificar los cambios propuestos van en titulo/materia/fecha/prioridad/completada igual que arriba.',
     '- tipo "sin_coincidencias": cuando el usuario se refiere a una tarea que NO está en la lista de arriba — descripcion explica a qué se refería.',
-    '- tipo "crear_nota": cuando el usuario pide agregar una nota, anotación o comentario a una tarea existente (ej. "agrega una nota a mi tarea de Cálculo diciendo que faltó el punto 3"). indiceObjetivo (o indicesCandidatos si más de una tarea podría ser) identifica la tarea igual que en "modificar"/"borrar". contenidoNota lleva el contenido de la nota, redactado en español a partir de lo que pidió el usuario. NUNCA crees una tarea nueva solo para poder agregarle una nota — si la tarea no está en la lista, usa "sin_coincidencias" en su lugar.',
-    'Nunca inventes un índice que no esté en la lista. Ante la duda entre "ambiguo" y adivinar, usa "ambiguo".',
+    '- tipo "crear_nota": cuando el usuario pide agregar una nota, anotación o comentario a una tarea O a un bloque de horario existente (ej. "agrega una nota a mi tarea de Cálculo diciendo que faltó el punto 3", "pon una nota en mi clase de Inglés de los lunes", "agrega una nota a mi bloque de ingreso"). Primero decide objetivoTipo: "tarea" si se refiere a una tarea de la primera lista, "bloque_horario" si se refiere a una clase/ingreso/salida/descanso de la lista de bloques. Luego indiceObjetivo (o indicesCandidatos si más de uno podría ser) identifica el objetivo dentro de ESA lista — nunca mezcles índices de una lista con objetivoTipo de la otra. contenidoNota lleva el contenido de la nota, redactado en español a partir de lo que pidió el usuario. NUNCA crees una tarea nueva solo para poder agregarle una nota — si el objetivo no está en ninguna lista, usa "sin_coincidencias" en su lugar.',
+    '- tipo "editar_nota": cuando el usuario pide cambiar el contenido de una nota que YA EXISTE (ej. "cambia la nota de mi tarea de Historia a que el examen es oral", "actualiza la nota de mi clase de Inglés"). objetivoTipo SIEMPRE "nota". indiceObjetivo (o indicesCandidatos) identifica la nota dentro de la lista de notas existentes. contenidoNota lleva el contenido NUEVO completo (no un parche, reemplaza todo el contenido anterior).',
+    '- tipo "borrar_nota": cuando el usuario pide quitar/eliminar una nota que YA EXISTE (ej. "borra la nota de mi tarea de Historia", "elimina la nota de mi bloque de descanso"). objetivoTipo SIEMPRE "nota". indiceObjetivo (o indicesCandidatos) identifica la nota. contenidoNota va vacío ("") — borrar no necesita contenido.',
+    'Nunca inventes un índice que no esté en la lista correspondiente. Ante la duda entre "ambiguo" y adivinar, usa "ambiguo".',
     'Responde únicamente con el JSON solicitado.',
   ].join('\n')
 }
@@ -268,6 +366,13 @@ class TaskManagementAgentImpl implements AIAgent<TaskManagementAgentOutput> {
     const notasTexto = listarNotasParaPrompt(tareasExistentes, notasPorTareaId)
     const conversacionesPasadas = normalizarConversacionesPasadas(context.conversationHistory)
     const conversacionesTexto = listarConversacionesParaPrompt(conversacionesPasadas)
+    // Sprint Sistema de Notas Unificado (Parte E) — mismo origen que
+    // tareasExistentes: consulta puntual del Route Handler, pasada en
+    // request.metadata (no vía ContextEngine — mismo razonamiento que
+    // tareasExistentes de arriba, necesita campos puntuales).
+    const bloquesExistentes = normalizarBloquesExistentes(request.metadata)
+    const notasExistentesContexto = normalizarNotasExistentesContexto(request.metadata)
+    const archivosExistentes = normalizarArchivosExistentes(request.metadata)
 
     const metadata: StructuredProviderMetadata = {
       systemInstruction: construirInstruccionSistema(
@@ -276,7 +381,10 @@ class TaskManagementAgentImpl implements AIAgent<TaskManagementAgentOutput> {
         historial.length > 0,
         adjuntos.length > 0,
         notasTexto,
-        conversacionesTexto
+        conversacionesTexto,
+        listarBloquesParaPrompt(bloquesExistentes),
+        listarNotasExistentesParaPrompt(notasExistentesContexto),
+        listarArchivosParaPrompt(archivosExistentes)
       ),
       outputSchema: TASK_MANAGEMENT_OUTPUT_SCHEMA,
       // Sin adjuntos: ninguna de las dos claves se agrega (undefined se
@@ -305,13 +413,15 @@ class TaskManagementAgentImpl implements AIAgent<TaskManagementAgentOutput> {
     }
 
     const operaciones = resolverOperaciones(parsed.data.operaciones, tareasExistentes)
-    const notasParaCrear = resolverNotas(parsed.data.operaciones, tareasExistentes)
+    const notasParaCrear = resolverNotas(parsed.data.operaciones, tareasExistentes, bloquesExistentes, archivosExistentes)
+    const operacionesNotaExistente = resolverOperacionesNotaExistente(parsed.data.operaciones, notasExistentesContexto)
     const output: TaskManagementAgentOutput = {
       originalText: text,
       tipoRespuesta: parsed.data.tipoRespuesta,
       mensaje: parsed.data.mensaje,
       operaciones,
       notasParaCrear,
+      operacionesNotaExistente,
     }
 
     const confidencesCrear = operaciones.filter((op) => op.tipo === 'crear').map((op) => op.confidence)

@@ -17,6 +17,7 @@ export type FilaNota = {
   tarea_id: string | null
   bloque_horario_id: string | null
   archivo_id: string | null
+  materia_id: string | null
   drive_file_id: string | null
   drive_sync_error: string | null
   creado_por: 'usuario' | 'ia'
@@ -39,6 +40,7 @@ export async function crearNota(
     tareaId: string | null
     bloqueHorarioId: string | null
     archivoId?: string | null
+    materiaId?: string | null
     creadoPor: 'usuario' | 'ia'
   }
 ): Promise<{ ok: true; nota: FilaNota } | { ok: false; error: string }> {
@@ -51,6 +53,7 @@ export async function crearNota(
       tarea_id: input.tareaId,
       bloque_horario_id: input.bloqueHorarioId,
       archivo_id: input.archivoId ?? null,
+      materia_id: input.materiaId ?? null,
       creado_por: input.creadoPor,
     })
     .select()
@@ -65,8 +68,10 @@ export async function crearNota(
 
 // Prefijo con los primeros 8 caracteres del id: Drive no impone unicidad de
 // nombre, así que sin esto dos notas de la misma tarea aparecerían con el
-// mismo nombre visible al abrir la carpeta a mano.
-function nombreArchivoNota(notaId: string, titulo: string | null): string {
+// mismo nombre visible al abrir la carpeta a mano. Exportada para poder
+// testearla directo, sin red — es la única función pura de este archivo
+// (Sprint Sistema de Notas Unificado, primer test de lib/server/notas.ts).
+export function nombreArchivoNota(notaId: string, titulo: string | null): string {
   const base = (titulo ?? 'Nota').trim().slice(0, 60).replace(/[\\/:*?"<>|]/g, '_')
   return `${notaId.slice(0, 8)}-${base || 'Nota'}.txt`
 }

@@ -253,27 +253,30 @@ describe('solicitarEliminacionCuentaSchema', () => {
   })
 })
 
-describe('crearNotaSchema — ancla de 3 vías (tarea / bloque / archivo)', () => {
+describe('crearNotaSchema — ancla de 4 vías (tarea / bloque / archivo / materia)', () => {
   const ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
 
   it('acepta sin ninguna ancla (nota suelta)', () => {
     expect(crearNotaSchema.safeParse({ contenido: 'x' }).success).toBe(true)
   })
 
-  it('acepta exactamente una de las 3 anclas por separado', () => {
+  it('acepta exactamente una de las 4 anclas por separado', () => {
     expect(crearNotaSchema.safeParse({ contenido: 'x', tareaId: ID }).success).toBe(true)
     expect(crearNotaSchema.safeParse({ contenido: 'x', bloqueHorarioId: ID }).success).toBe(true)
     expect(crearNotaSchema.safeParse({ contenido: 'x', archivoId: ID }).success).toBe(true)
+    expect(crearNotaSchema.safeParse({ contenido: 'x', materiaId: ID }).success).toBe(true)
   })
 
-  it('rechaza dos anclas a la vez, en cualquier combinación', () => {
+  it('rechaza dos anclas a la vez, en cualquier combinación (incluyendo materiaId)', () => {
     expect(crearNotaSchema.safeParse({ contenido: 'x', tareaId: ID, archivoId: ID }).success).toBe(false)
     expect(crearNotaSchema.safeParse({ contenido: 'x', bloqueHorarioId: ID, archivoId: ID }).success).toBe(false)
     expect(crearNotaSchema.safeParse({ contenido: 'x', tareaId: ID, bloqueHorarioId: ID }).success).toBe(false)
+    expect(crearNotaSchema.safeParse({ contenido: 'x', materiaId: ID, tareaId: ID }).success).toBe(false)
+    expect(crearNotaSchema.safeParse({ contenido: 'x', materiaId: ID, archivoId: ID }).success).toBe(false)
   })
 
-  it('rechaza las 3 anclas a la vez', () => {
-    expect(crearNotaSchema.safeParse({ contenido: 'x', tareaId: ID, bloqueHorarioId: ID, archivoId: ID }).success).toBe(false)
+  it('rechaza las 4 anclas a la vez', () => {
+    expect(crearNotaSchema.safeParse({ contenido: 'x', tareaId: ID, bloqueHorarioId: ID, archivoId: ID, materiaId: ID }).success).toBe(false)
   })
 })
 
@@ -294,5 +297,19 @@ describe('actualizarNotaSchema', () => {
 
   it('rechaza fijar dos anclas a la vez', () => {
     expect(actualizarNotaSchema.safeParse({ tareaId: ID, archivoId: ID }).success).toBe(false)
+  })
+
+  it('acepta cambiar solo materiaId', () => {
+    expect(actualizarNotaSchema.safeParse({ materiaId: ID }).success).toBe(true)
+  })
+
+  it('acepta poner materiaId en null (desanclar)', () => {
+    expect(actualizarNotaSchema.safeParse({ materiaId: null }).success).toBe(true)
+  })
+
+  it('rechaza materiaId junto con cualquier otra ancla', () => {
+    expect(actualizarNotaSchema.safeParse({ materiaId: ID, tareaId: ID }).success).toBe(false)
+    expect(actualizarNotaSchema.safeParse({ materiaId: ID, bloqueHorarioId: ID }).success).toBe(false)
+    expect(actualizarNotaSchema.safeParse({ materiaId: ID, archivoId: ID }).success).toBe(false)
   })
 })

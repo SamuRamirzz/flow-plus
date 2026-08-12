@@ -1,11 +1,22 @@
 'use client'
 
-import { CalendarClock, Clock } from 'lucide-react'
+import { CalendarClock, Clock, StickyNote } from 'lucide-react'
 import type { TareaProxima, ProximaClase } from '@/lib/estadisticas/pulso'
+import type { Nota } from '@/lib/notas/tipos'
 import { IconoMateria } from '@/components/ui/iconosMateria'
 import MagicBentoCard from '@/components/reactbits/MagicBento'
 
-type Props = { tareas: TareaProxima[]; hoy: string; proximaClase?: ProximaClase; className?: string }
+type Props = {
+  tareas: TareaProxima[]
+  hoy: string
+  proximaClase?: ProximaClase
+  // Parte D — notas ancladas al bloque de `proximaClase`, si tiene. Lista
+  // vacía (no undefined) cuando no hay ninguna: así el componente nunca
+  // necesita distinguir "todavía no cargó" de "no tiene notas", ninguna de
+  // las dos fuerza una sección vacía.
+  notasProximaClase?: Nota[]
+  className?: string
+}
 
 // Fila compacta: sin editar inline, sin borrar — esas acciones ya existen
 // en TaskTable, más abajo en la misma página. Copia la paleta EXACTA de
@@ -27,7 +38,7 @@ function fechaRelativa(fechaISO: string, hoy: string): { texto: string; clase: s
 // tarjeta "Hoy" (dato vivo del día — próxima clase + próximas tareas),
 // mientras AccesosRapidos queda como navegación pura (sin dato en vivo).
 // `proximaClaseHoy()` no se tocó, solo cambió qué componente la renderiza.
-export default function ProximasTareas({ tareas, hoy, proximaClase, className }: Props) {
+export default function ProximasTareas({ tareas, hoy, proximaClase, notasProximaClase, className }: Props) {
   return (
     <MagicBentoCard className={className ?? 'h-full'}>
       <div className="p-4 sm:p-5 h-full">
@@ -40,12 +51,30 @@ export default function ProximasTareas({ tareas, hoy, proximaClase, className }:
           // Separación por bloque de color, no por línea — la directiva
           // global de globals.css anula cualquier `border-*` a propósito
           // (cero bordes duros en todo el proyecto, ver AGENTS.md/CLAUDE.md).
-          <div className="flex items-center gap-2 mb-3 px-2.5 py-2 rounded-xl bg-coral/10 text-xs">
-            <Clock size={12} className="text-coral flex-shrink-0" />
-            <span className="text-paper truncate">
-              {proximaClase.materiaNombre} en {proximaClase.minutosHasta} min
-              {proximaClase.bloque.aula ? ` · ${proximaClase.bloque.aula}` : ''}
-            </span>
+          <div className="mb-3 px-2.5 py-2 rounded-xl bg-coral/10 text-xs">
+            <div className="flex items-center gap-2">
+              <Clock size={12} className="text-coral flex-shrink-0" />
+              <span className="text-paper truncate">
+                {proximaClase.materiaNombre} en {proximaClase.minutosHasta} min
+                {proximaClase.bloque.aula ? ` · ${proximaClase.bloque.aula}` : ''}
+              </span>
+            </div>
+
+            {/* Parte D — si el bloque tiene notas, la más reciente se
+                muestra acá mismo, sin que el usuario tenga que ir a
+                buscarla. Varias notas: solo la primera (ya viene ordenada
+                por más reciente desde el backend, GET /api/notas ordena
+                por updated_at desc) + un indicador de cuántas más hay, para
+                no saturar una tarjeta que también muestra próximas tareas. */}
+            {notasProximaClase && notasProximaClase.length > 0 && (
+              <div className="flex items-start gap-1.5 mt-1.5 pt-1.5">
+                <StickyNote size={11} className="text-coral/70 flex-shrink-0 mt-0.5" />
+                <p className="text-paper/80 text-[11px] leading-snug line-clamp-2">
+                  {notasProximaClase[0].contenido}
+                  {notasProximaClase.length > 1 && <span className="text-muted"> · +{notasProximaClase.length - 1} más</span>}
+                </p>
+              </div>
+            )}
           </div>
         )}
 

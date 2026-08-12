@@ -91,18 +91,71 @@ export type OperacionTarea =
   | OperacionAmbigua
   | OperacionSinCoincidencias
 
-// Sprint Archivos / Fase 4.2 — resultado de resolver una intención
-// `crear_nota` contra `tareasExistentes`, DELIBERADAMENTE separado de
-// `OperacionTarea`: nunca se re-exporta desde index.ts (el barrel que
-// consume components/ai/*), solo lo importan resolver.ts/TaskManagementAgent.ts
-// y app/api/ai/tareas/route.ts de forma directa. Una nota ambigua no tiene
+// Sprint Archivos / Fase 4.2, extendido en el Sprint Sistema de Notas
+// Unificado (Parte E) — resultado de resolver una intención `crear_nota`
+// contra `tareasExistentes` O `bloquesExistentes` (según `objetivoTipo` que
+// devuelve el modelo), DELIBERADAMENTE separado de `OperacionTarea`: nunca
+// se re-exporta desde index.ts (el barrel que consume components/ai/*),
+// solo lo importan resolver.ts/TaskManagementAgent.ts y
+// app/api/ai/tareas/route.ts de forma directa. Una nota ambigua no tiene
 // picker de candidatos en el cliente (a diferencia de modificar/borrar) — se
 // resuelve con una respuesta conversacional pidiendo aclaración, ver el
 // Route Handler.
+//
+// `estado:'resuelto'` lleva `ancla` (discriminada por `tipo`) en vez de tres
+// campos opcionales `tareaId?`/`bloqueHorarioId?`/`archivoId?` — evita el
+// estado inválido "más de uno presente a la vez" al nivel del propio tipo,
+// no solo por convención.
+export type AnclaResuelta = { tipo: 'tarea'; id: string } | { tipo: 'bloque_horario'; id: string } | { tipo: 'archivo'; id: string }
+
 export type OperacionCrearNotaResuelta =
-  | { id: string; estado: 'resuelto'; tareaId: string; contenidoNota: string }
-  | { id: string; estado: 'ambiguo'; contenidoNota: string; candidatos: TareaContexto[] }
+  | { id: string; estado: 'resuelto'; ancla: AnclaResuelta; contenidoNota: string }
+  | { id: string; estado: 'ambiguo'; contenidoNota: string; candidatos: TareaContexto[] | BloqueHorarioContexto[] | ArchivoContexto[] }
   | { id: string; estado: 'sin_coincidencias' }
+
+// Sprint Sistema de Notas Unificado (Parte E, cierre del gap de "archivo
+// existente") — mismo espíritu que BloqueHorarioContexto: el resumen mínimo
+// de un archivo real que el modelo puede "ver" para resolver una
+// referencia como "mi apunte de Física" o "mi archivo Collective Nouns".
+export type ArchivoContexto = { id: string; nombre: string }
+
+// Sprint Sistema de Notas Unificado (Parte E) — mismo espíritu que
+// TareaContexto: el resumen mínimo de un bloque de horario que el modelo
+// puede "ver" para resolver una referencia ("mi clase de Inglés de los
+// lunes", "mi bloque de ingreso"). `nombre` ya viene resuelto a texto
+// legible (materia si es tipo 'clase', o "Ingreso"/"Salida"/"Descanso" si
+// es especial) — el modelo nunca necesita saber de `tipo`/`materiaId` por
+// separado, evita que tenga que cruzar dos tablas en su cabeza.
+export type BloqueHorarioContexto = {
+  id: string
+  nombre: string
+  diaSemana: number
+  horaInicio: string | null
+}
+
+// Sprint Sistema de Notas Unificado (Parte E) — resumen mínimo de una nota
+// EXISTENTE del usuario, para que el modelo pueda resolver "la nota de mi
+// tarea de Historia" / "mi nota de la clase de Inglés" al editar/borrar por
+// lenguaje natural. `anclaTexto` ya viene resuelto (mismo criterio que
+// `nombreDeAncla` en lib/notas/formato.ts, versión servidor) para que el
+// modelo compare contra lo que el usuario dijo sin tener que cruzar tablas.
+export type NotaContextoIA = {
+  id: string
+  anclaTexto: string
+  contenido: string
+}
+
+// Sprint Sistema de Notas Unificado (Parte E) — resultado de resolver
+// `editar_nota`/`borrar_nota` contra `notasExistentes`. Mismo criterio
+// defensivo que `resolverCandidatos`: >1 candidato válido siempre es
+// "ambiguo", nunca se aplica sobre la nota equivocada. `contenidoNuevo`
+// solo tiene sentido en `editar_nota` (ausente en `borrar_nota`, no una
+// cadena vacía — la resolución de a qué nota apunta es idéntica en los dos
+// casos, así que un solo tipo cubre ambos).
+export type OperacionNotaExistenteResuelta =
+  | { id: string; accion: 'editar' | 'borrar'; estado: 'resuelto'; notaId: string; contenidoNuevo?: string }
+  | { id: string; accion: 'editar' | 'borrar'; estado: 'ambiguo'; contenidoNuevo?: string; candidatos: NotaContextoIA[] }
+  | { id: string; accion: 'editar' | 'borrar'; estado: 'sin_coincidencias' }
 
 export type TaskManagementAgentOutput = {
   originalText: string
@@ -119,4 +172,9 @@ export type TaskManagementAgentOutput = {
   // respuesta pero solo lo consume el propio Route Handler, server-side,
   // antes de responder.
   notasParaCrear?: OperacionCrearNotaResuelta[]
+  // Sprint Sistema de Notas Unificado (Parte E) — mismo criterio que
+  // notasParaCrear: refleja `editar_nota`/`borrar_nota` ya resueltas contra
+  // notasExistentes, exclusivo del servidor (el Route Handler lo consume y
+  // lo borra antes de responder al cliente).
+  operacionesNotaExistente?: OperacionNotaExistenteResuelta[]
 }

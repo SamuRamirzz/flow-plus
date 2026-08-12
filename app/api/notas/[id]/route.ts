@@ -25,7 +25,7 @@ export async function PATCH(request: Request, { params }: Contexto) {
   const parsed = actualizarNotaSchema.safeParse(body)
   if (!parsed.success) return errorDeValidacion(parsed.error)
 
-  const { titulo, contenido, tareaId, bloqueHorarioId, archivoId } = parsed.data
+  const { titulo, contenido, tareaId, bloqueHorarioId, archivoId, materiaId } = parsed.data
 
   if (tareaId) {
     const { data } = await supabaseServer.from('tareas').select('id').eq('id', tareaId).eq('user_id', userId).maybeSingle()
@@ -39,6 +39,10 @@ export async function PATCH(request: Request, { params }: Contexto) {
     const { data } = await supabaseServer.from('archivos').select('id').eq('id', archivoId).eq('user_id', userId).maybeSingle()
     if (!data) return errorJson('archivoId no corresponde a un archivo tuyo', 400)
   }
+  if (materiaId) {
+    const { data } = await supabaseServer.from('materias').select('id').eq('id', materiaId).eq('user_id', userId).maybeSingle()
+    if (!data) return errorJson('materiaId no corresponde a una materia tuya', 400)
+  }
 
   const cambios: Record<string, unknown> = {}
   if (titulo !== undefined) cambios.titulo = titulo
@@ -46,6 +50,7 @@ export async function PATCH(request: Request, { params }: Contexto) {
   if (tareaId !== undefined) cambios.tarea_id = tareaId
   if (bloqueHorarioId !== undefined) cambios.bloque_horario_id = bloqueHorarioId
   if (archivoId !== undefined) cambios.archivo_id = archivoId
+  if (materiaId !== undefined) cambios.materia_id = materiaId
 
   const { data, error } = await supabaseServer.from('notas').update(cambios).eq('id', id).eq('user_id', userId).select().single()
 

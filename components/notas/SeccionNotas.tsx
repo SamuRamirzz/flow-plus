@@ -4,23 +4,28 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { StickyNote, Plus, Check, X, Pencil, Trash2, Loader2 } from 'lucide-react'
 import { useToast } from '@/lib/toast'
-import { cargarNotasDeArchivo, crearNotaDeArchivo, actualizarNota, eliminarNota } from '@/lib/archivos/api'
-import type { Nota } from '@/lib/archivos/tipos'
+import { cargarNotas, crearNota, actualizarNota, eliminarNota, type AnclaNota } from '@/lib/notas/api'
+import type { Nota } from '@/lib/notas/tipos'
 
-// Sprint Archivos — Notas ancladas a un archivo, dentro del panel de
-// detalle. Mismo patrón de expandir-para-escribir que el resto de la app
-// usa para captura rápida (ej. AddTaskBar): un botón "+ Agregar nota" que
-// se convierte en un textarea + Guardar/Cancelar, en vez de un formulario
-// siempre visible que ocuparía espacio sin necesidad.
-//
-// El backend ya sincroniza cada nota a Drive automáticamente (crearNota()/
-// sincronizarNotaADrive() en lib/server/notas.ts, dentro de la carpeta
-// "Notas") — este componente no sabe nada de Drive, solo llama al endpoint
-// y confía en que el reflejo ya está resuelto del otro lado.
-export default function SeccionNotas({ archivoId }: { archivoId: string }) {
+// Sprint Sistema de Notas Unificado — generaliza la sección de notas que
+// nació hardcodeada a `archivoId` (Sprint Archivos) para que
+// `/agenda` (tareas/exámenes) y `/horario` (bloques, incluidos los 4 tipos:
+// clase/ingreso/salida/descanso) la puedan montar con el mismo componente,
+// sin duplicar el patrón de "lista + expandir para agregar + editar inline +
+// borrar con doble confirmación". El diseño visual, la UX y el
+// comportamiento son IDÉNTICOS a la versión original de Archivos — solo
+// cambia qué ancla (AnclaNota) se le pasa.
+export default function SeccionNotas({ ancla, mensajeVacio }: { ancla: AnclaNota; mensajeVacio?: string }) {
   const { notify } = useToast()
-  const [notas, setNotas] = useState<Nota[]>([])
-  const [cargando, setCargando] = useState(true)
+  // `notasCargadas` guarda para qué ancla se cargó — permite derivar
+  // `cargando`/`notas` en el render (líneas de abajo) en vez de un
+  // `setState` síncrono al inicio del efecto cada vez que `ancla` cambia
+  // (evita react-hooks/set-state-in-effect, regla que este proyecto
+  // mantiene en cero). En la práctica todos los llamadores de hoy montan
+  // este componente con una ancla fija (nunca la cambian sin remontar), así
+  // que esto es defensivo más que necesario hoy — pero el componente sigue
+  // siendo correcto si algún día se reusa así.
+  const [notasCargadas, setNotasCargadas] = useState<{ anclaId: string; notas: Nota[] } | null>(null)
   const [creando, setCreando] = useState(false)
   const [textoNueva, setTextoNueva] = useState('')
   const [guardandoNueva, setGuardandoNueva] = useState(false)
@@ -29,26 +34,31 @@ export default function SeccionNotas({ archivoId }: { archivoId: string }) {
   const [guardandoEdicion, setGuardandoEdicion] = useState(false)
   const [confirmandoBorrarId, setConfirmandoBorrarId] = useState<string | null>(null)
 
+  const cargando = notasCargadas?.anclaId !== ancla.id
+  const notas = notasCargadas?.anclaId === ancla.id ? notasCargadas.notas : []
+
   useEffect(() => {
     let activo = true
-    void cargarNotasDeArchivo(archivoId).then((r) => {
+    void cargarNotas(ancla).then((r) => {
       if (!activo) return
-      if (r.ok) setNotas(r.datos)
-      setCargando(false)
+      if (r.ok) setNotasCargadas({ anclaId: ancla.id, notas: r.datos })
     })
     return () => {
       activo = false
     }
-  }, [archivoId])
+    // `ancla.id` basta como dependencia real (el `tipo` no cambia sin que
+    // el `id` también cambie, en todo caso de uso de este componente hoy).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ancla.tipo, ancla.id])
 
   async function alGuardarNueva() {
     const contenido = textoNueva.trim()
     if (contenido.length === 0 || guardandoNueva) return
     setGuardandoNueva(true)
-    const r = await crearNotaDeArchivo(archivoId, contenido)
+    const r = await crearNota(ancla, contenido)
     setGuardandoNueva(false)
     if (!r.ok) return notify(r.error, false)
-    setNotas((prev) => [r.datos, ...prev])
+    setNotasCargadas((prev) => ({ anclaId: ancla.id, notas: [r.datos, ...(prev?.notas ?? [])] }))
     setTextoNueva('')
     setCreando(false)
   }
@@ -65,14 +75,14 @@ export default function SeccionNotas({ archivoId }: { archivoId: string }) {
     const r = await actualizarNota(id, contenido)
     setGuardandoEdicion(false)
     if (!r.ok) return notify(r.error, false)
-    setNotas((prev) => prev.map((n) => (n.id === id ? r.datos : n)))
+    setNotasCargadas((prev) => (prev ? { anclaId: prev.anclaId, notas: prev.notas.map((n) => (n.id === id ? r.datos : n)) } : prev))
     setEditandoId(null)
   }
 
   async function alBorrar(id: string) {
     const r = await eliminarNota(id)
     if (!r.ok) return notify(r.error, false)
-    setNotas((prev) => prev.filter((n) => n.id !== id))
+    setNotasCargadas((prev) => (prev ? { anclaId: prev.anclaId, notas: prev.notas.filter((n) => n.id !== id) } : prev))
     setConfirmandoBorrarId(null)
   }
 
@@ -108,6 +118,7 @@ export default function SeccionNotas({ archivoId }: { archivoId: string }) {
                     <button
                       onClick={() => void alGuardarEdicion(nota.id)}
                       disabled={guardandoEdicion || textoEdicion.trim().length === 0}
+                      aria-label="Confirmar edición"
                       className="rounded-lg p-1.5 text-coral hover:bg-coral/10 transition disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {guardandoEdicion ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
@@ -135,7 +146,9 @@ export default function SeccionNotas({ archivoId }: { archivoId: string }) {
             </div>
           ))}
 
-          {!cargando && notas.length === 0 && !creando && <p className="text-[11px] text-muted/60 leading-relaxed">Aún no hay notas en este archivo.</p>}
+          {!cargando && notas.length === 0 && !creando && (
+            <p className="text-[11px] text-muted/60 leading-relaxed">{mensajeVacio ?? 'Aún no hay notas acá.'}</p>
+          )}
         </div>
       )}
 

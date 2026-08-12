@@ -1,6 +1,14 @@
 import { createId } from '@/lib/ai/utils'
-import type { OperacionRaw, OperacionCrearNotaRaw } from './schema'
-import type { OperacionTarea, OperacionCrearNotaResuelta, TareaContexto } from './types'
+import type { OperacionRaw, OperacionCrearNotaRaw, OperacionNotaExistenteRaw } from './schema'
+import type {
+  OperacionTarea,
+  OperacionCrearNotaResuelta,
+  OperacionNotaExistenteResuelta,
+  TareaContexto,
+  BloqueHorarioContexto,
+  ArchivoContexto,
+  NotaContextoIA,
+} from './types'
 
 // PURO respecto a datos: la única impureza es createId() (timestamp +
 // aleatorio), igual que HomeworkOutputParser — no afecta la resolución en
@@ -14,31 +22,35 @@ import type { OperacionTarea, OperacionCrearNotaResuelta, TareaContexto } from '
 // mapea a ningún miembro de `OperacionTarea` (el tipo público que consume
 // components/ai/*, ya en producción). Se resuelve aparte con
 // `resolverNotas()`, más abajo, reusando `resolverCandidatos()` — la MISMA
-// lógica de cruce de índices, sin duplicarla.
+// lógica de cruce de índices, sin duplicarla. Sprint Sistema de Notas
+// Unificado — `editar_nota`/`borrar_nota` se excluyen por el mismo motivo,
+// resueltas aparte con `resolverOperacionesNotaExistente()`.
 export function resolverOperaciones(operacionesRaw: OperacionRaw[], tareasExistentes: TareaContexto[]): OperacionTarea[] {
   return operacionesRaw
-    .filter((raw): raw is Exclude<OperacionRaw, OperacionCrearNotaRaw> => raw.tipo !== 'crear_nota')
+    .filter(
+      (raw): raw is Exclude<OperacionRaw, OperacionCrearNotaRaw | OperacionNotaExistenteRaw> =>
+        raw.tipo !== 'crear_nota' && raw.tipo !== 'editar_nota' && raw.tipo !== 'borrar_nota'
+    )
     .map((raw) => resolverUna(raw, tareasExistentes))
 }
 
-type ResolucionCandidatos =
-  | { estado: 'ambiguo'; candidatos: TareaContexto[] }
-  | { estado: 'sin_coincidencias' }
-  | { estado: 'resuelto'; tarea: TareaContexto }
+type ResolucionCandidatos<T> = { estado: 'ambiguo'; candidatos: T[] } | { estado: 'sin_coincidencias' } | { estado: 'resuelto'; item: T }
 
 // Cruza (indiceObjetivo, indicesCandidatos) — lo que el modelo devolvió —
-// contra la lista real de tareas. Compartida por `resolverUna` (modificar/
-// borrar/ambiguo) y `resolverNotas` (crear_nota): es la pieza defensiva real
-// (">1 candidato válido siempre gana como 'ambiguo'"), y solo existe una vez.
-function resolverCandidatos(indiceObjetivo: number | null, indicesCandidatos: number[], tareasExistentes: TareaContexto[]): ResolucionCandidatos {
-  const enRango = (i: number) => i >= 0 && i < tareasExistentes.length
+// contra una lista real de items indexables. Genérica sobre T (Sprint
+// Sistema de Notas Unificado: antes solo tareas, ahora también bloques de
+// horario y notas existentes) — es la pieza defensiva real (">1 candidato
+// válido siempre gana como 'ambiguo'"), y solo existe una vez sin importar
+// contra qué lista se use.
+function resolverCandidatos<T>(indiceObjetivo: number | null, indicesCandidatos: number[], lista: T[]): ResolucionCandidatos<T> {
+  const enRango = (i: number) => i >= 0 && i < lista.length
   const candidatosIdx = indicesCandidatos.filter(enRango)
-  const candidatos = candidatosIdx.map((i) => tareasExistentes[i])
+  const candidatos = candidatosIdx.map((i) => lista[i])
 
   // Defensivo: >1 candidato válido siempre gana como "ambiguo", sin
   // importar qué `tipo` haya declarado el modelo — nunca se aplica una
   // acción irreversible (borrar) o silenciosa (modificar/crear_nota) sobre
-  // la tarea equivocada solo porque el modelo se saltó el chequeo.
+  // el item equivocado solo porque el modelo se saltó el chequeo.
   if (candidatos.length > 1) return { estado: 'ambiguo', candidatos }
 
   // Un único candidato sobrevivió al filtro de rango (o el modelo dio un
@@ -52,10 +64,10 @@ function resolverCandidatos(indiceObjetivo: number | null, indicesCandidatos: nu
     return { estado: 'sin_coincidencias' }
   }
 
-  return { estado: 'resuelto', tarea: tareasExistentes[indiceResuelto] }
+  return { estado: 'resuelto', item: lista[indiceResuelto] }
 }
 
-function resolverUna(raw: Exclude<OperacionRaw, OperacionCrearNotaRaw>, tareasExistentes: TareaContexto[]): OperacionTarea {
+function resolverUna(raw: Exclude<OperacionRaw, OperacionCrearNotaRaw | OperacionNotaExistenteRaw>, tareasExistentes: TareaContexto[]): OperacionTarea {
   if (raw.tipo === 'crear') {
     return {
       id: createId('op'),
@@ -89,7 +101,7 @@ function resolverUna(raw: Exclude<OperacionRaw, OperacionCrearNotaRaw>, tareasEx
     return { id: createId('op'), tipo: 'sin_coincidencias', descripcion: raw.descripcion }
   }
 
-  const antes = resolucion.tarea
+  const antes = resolucion.item
   const accion = raw.tipo === 'ambiguo' ? (raw.accionOriginal ?? 'modificar') : raw.tipo
 
   if (accion === 'borrar') {
@@ -98,22 +110,74 @@ function resolverUna(raw: Exclude<OperacionRaw, OperacionCrearNotaRaw>, tareasEx
   return { id: createId('op'), tipo: 'modificar', tareaId: antes.id, antes, cambios: raw.cambios }
 }
 
-// Sprint Archivos / Fase 4.2 — resuelve las intenciones `crear_nota` contra
-// `tareasExistentes`, reusando `resolverCandidatos` (la misma lógica que
+// Sprint Archivos / Fase 4.2, extendido en el Sprint Sistema de Notas
+// Unificado — resuelve las intenciones `crear_nota` contra `tareasExistentes`,
+// `bloquesExistentes`, O `archivosExistentes` (según `raw.objetivoTipo`, lo
+// que el modelo dijo), reusando `resolverCandidatos` (la misma lógica que
 // modificar/borrar/ambiguo, sin duplicarla). El tipo de retorno
 // (`OperacionCrearNotaResuelta`, en types.ts) es DELIBERADAMENTE distinto de
 // `OperacionTarea`: nunca se re-exporta desde index.ts (el barrel que
 // consume components/ai/*) — solo lo importan TaskManagementAgent.ts y
 // app/api/ai/tareas/route.ts de forma directa.
-export function resolverNotas(operacionesRaw: OperacionRaw[], tareasExistentes: TareaContexto[]): OperacionCrearNotaResuelta[] {
+//
+// `archivosExistentes` se agregó DESPUÉS de verificar contra Gemini real que
+// "agrega una nota a mi archivo X" devolvía sin_coincidencias siempre sin
+// este tercer universo — el encargo original asumía que ya funcionaba
+// (heredado de un flujo distinto, PreguntaArchivoAgent, que responde
+// preguntas sobre un archivo puntual pero nunca gestionaba notas por
+// lenguaje natural genérico). Cerrado en el mismo sprint.
+export function resolverNotas(
+  operacionesRaw: OperacionRaw[],
+  tareasExistentes: TareaContexto[],
+  bloquesExistentes: BloqueHorarioContexto[],
+  archivosExistentes: ArchivoContexto[]
+): OperacionCrearNotaResuelta[] {
   return operacionesRaw
     .filter((raw): raw is OperacionCrearNotaRaw => raw.tipo === 'crear_nota')
     .map((raw) => {
       const id = createId('op')
-      const resolucion = resolverCandidatos(raw.indiceObjetivo, raw.indicesCandidatos, tareasExistentes)
 
+      if (raw.objetivoTipo === 'bloque_horario') {
+        const resolucion = resolverCandidatos(raw.indiceObjetivo, raw.indicesCandidatos, bloquesExistentes)
+        if (resolucion.estado === 'ambiguo') return { id, estado: 'ambiguo', contenidoNota: raw.contenidoNota, candidatos: resolucion.candidatos }
+        if (resolucion.estado === 'sin_coincidencias') return { id, estado: 'sin_coincidencias' }
+        return { id, estado: 'resuelto', ancla: { tipo: 'bloque_horario', id: resolucion.item.id }, contenidoNota: raw.contenidoNota }
+      }
+
+      if (raw.objetivoTipo === 'archivo') {
+        const resolucion = resolverCandidatos(raw.indiceObjetivo, raw.indicesCandidatos, archivosExistentes)
+        if (resolucion.estado === 'ambiguo') return { id, estado: 'ambiguo', contenidoNota: raw.contenidoNota, candidatos: resolucion.candidatos }
+        if (resolucion.estado === 'sin_coincidencias') return { id, estado: 'sin_coincidencias' }
+        return { id, estado: 'resuelto', ancla: { tipo: 'archivo', id: resolucion.item.id }, contenidoNota: raw.contenidoNota }
+      }
+
+      const resolucion = resolverCandidatos(raw.indiceObjetivo, raw.indicesCandidatos, tareasExistentes)
       if (resolucion.estado === 'ambiguo') return { id, estado: 'ambiguo', contenidoNota: raw.contenidoNota, candidatos: resolucion.candidatos }
       if (resolucion.estado === 'sin_coincidencias') return { id, estado: 'sin_coincidencias' }
-      return { id, estado: 'resuelto', tareaId: resolucion.tarea.id, contenidoNota: raw.contenidoNota }
+      return { id, estado: 'resuelto', ancla: { tipo: 'tarea', id: resolucion.item.id }, contenidoNota: raw.contenidoNota }
+    })
+}
+
+// Sprint Sistema de Notas Unificado — resuelve `editar_nota`/`borrar_nota`
+// contra `notasExistentes` (la lista real de notas del usuario, con su
+// ancla ya resuelta a texto legible — ver NotaContextoIA en types.ts).
+// Mismo criterio defensivo que el resto: >1 candidato válido siempre es
+// "ambiguo".
+export function resolverOperacionesNotaExistente(
+  operacionesRaw: OperacionRaw[],
+  notasExistentes: NotaContextoIA[]
+): OperacionNotaExistenteResuelta[] {
+  return operacionesRaw
+    .filter((raw): raw is OperacionNotaExistenteRaw => raw.tipo === 'editar_nota' || raw.tipo === 'borrar_nota')
+    .map((raw) => {
+      const id = createId('op')
+      const accion = raw.tipo === 'editar_nota' ? 'editar' : 'borrar'
+      const resolucion = resolverCandidatos(raw.indiceObjetivo, raw.indicesCandidatos, notasExistentes)
+
+      if (resolucion.estado === 'ambiguo') {
+        return { id, accion, estado: 'ambiguo', contenidoNuevo: raw.contenidoNuevo ?? undefined, candidatos: resolucion.candidatos }
+      }
+      if (resolucion.estado === 'sin_coincidencias') return { id, accion, estado: 'sin_coincidencias' }
+      return { id, accion, estado: 'resuelto', notaId: resolucion.item.id, contenidoNuevo: raw.contenidoNuevo ?? undefined }
     })
 }

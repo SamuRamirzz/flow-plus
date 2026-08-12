@@ -1,7 +1,7 @@
 'use client'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { X, Check, Trash2 } from 'lucide-react'
+import { X, Check, Trash2, StickyNote } from 'lucide-react'
 import type { Materia, Tarea } from '@/lib/types'
 
 type Props = {
@@ -11,9 +11,14 @@ type Props = {
   onClose: () => void
   onToggle: (id: string, actual: boolean) => void
   onDelete: (id: string) => void
+  // Sprint Sistema de Notas Unificado — opcional: si se pasa, cada fila
+  // gana un botón para ver/agregar notas. El padre decide qué hacer al
+  // clickearlo (típicamente: cerrar este modal y abrir DetalleTareaModal —
+  // nunca dos modales superpuestos a la vez).
+  onAbrirDetalle?: (tarea: Tarea) => void
 }
 
-export default function DayDetailModal({ fecha, tareas, materias, onClose, onToggle, onDelete }: Props) {
+export default function DayDetailModal({ fecha, tareas, materias, onClose, onToggle, onDelete, onAbrirDetalle }: Props) {
   if (typeof document === 'undefined') return null
   const materiaDe = (id: string) => materias.find((m) => m.id === id)
   const label = fecha
@@ -68,9 +73,16 @@ export default function DayDetailModal({ fecha, tareas, materias, onClose, onTog
                         <p className={`text-sm text-paper truncate ${t.completada ? 'line-through' : ''}`}>{t.titulo}</p>
                         <span className="text-[10px] font-mono text-muted">{m?.nombre ?? '—'}</span>
                       </div>
-                      <button onClick={() => onDelete(t.id)} className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition">
-                        <Trash2 size={13} />
-                      </button>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                        {onAbrirDetalle && (
+                          <button onClick={() => onAbrirDetalle(t)} title="Ver notas y detalle" className="text-muted hover:text-coral p-1">
+                            <StickyNote size={13} />
+                          </button>
+                        )}
+                        <button onClick={() => onDelete(t.id)} title="Eliminar tarea" className="text-muted hover:text-danger p-1">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
                   )
                 })}

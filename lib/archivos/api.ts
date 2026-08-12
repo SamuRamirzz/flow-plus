@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import type { Archivo, ActividadIA, EspacioDrive, MensajeArchivo, EstadoDrive, TareaDetectada, TipoDocumento, Nota } from './tipos'
+import type { Archivo, ActividadIA, EspacioDrive, MensajeArchivo, EstadoDrive, TareaDetectada, TipoDocumento } from './tipos'
 
 // Sprint Archivos / Frontend — el único punto del cliente que habla con los
 // endpoints de Archivos. Mismo espíritu que lib/api/cliente.ts: cada pantalla
@@ -101,37 +101,6 @@ export async function estadoDrive(): Promise<Resultado<EstadoDrive>> {
 
 export async function desvincularDrive(): Promise<Resultado<unknown>> {
   return pedir<unknown>('/api/integraciones/google-drive', { method: 'DELETE' })
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Notas ancladas a un archivo
-// ═══════════════════════════════════════════════════════════════════════════
-
-export async function cargarNotasDeArchivo(archivoId: string): Promise<Resultado<Nota[]>> {
-  const r = await pedir<{ notas: Nota[] }>(`/api/notas?archivoId=${archivoId}`)
-  return r.ok ? { ok: true, datos: r.datos.notas } : r
-}
-
-export async function crearNotaDeArchivo(archivoId: string, contenido: string): Promise<Resultado<Nota>> {
-  const r = await pedir<{ nota: Nota }>('/api/notas', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ archivoId, contenido }),
-  })
-  return r.ok ? { ok: true, datos: r.datos.nota } : r
-}
-
-export async function actualizarNota(id: string, contenido: string): Promise<Resultado<Nota>> {
-  const r = await pedir<{ nota: Nota }>(`/api/notas/${id}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ contenido }),
-  })
-  return r.ok ? { ok: true, datos: r.datos.nota } : r
-}
-
-export async function eliminarNota(id: string): Promise<Resultado<{ eliminado: boolean }>> {
-  return pedir<{ eliminado: boolean }>(`/api/notas/${id}`, { method: 'DELETE' })
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

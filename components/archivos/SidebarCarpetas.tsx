@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'motion/react'
-import { Folder, FolderOpen, Sparkles, CalendarDays, FileQuestion } from 'lucide-react'
+import { Folder, FolderOpen, Sparkles, CalendarDays, FileQuestion, StickyNote } from 'lucide-react'
 import type { Materia } from '@/lib/types'
 import type { Archivo } from '@/lib/archivos/tipos'
 import { contarPorCarpeta, mismaCarpeta, type CarpetaId } from '@/lib/archivos/formato'
@@ -11,6 +11,14 @@ type Props = {
   archivos: Archivo[]
   seleccionada: CarpetaId
   onSeleccionar: (c: CarpetaId) => void
+  // Sprint Sistema de Notas Unificado — "Notas" es una VISTA de nivel
+  // superior (Parte C), no una carpeta más de `CarpetaId`: esa unión
+  // discriminada filtra ARCHIVOS, y una nota no es un archivo (puede no
+  // tener ninguno asociado). `notasActiva` es independiente de `seleccionada`
+  // — las dos vistas son mutuamente excluyentes, decididas por el padre.
+  notasActiva: boolean
+  onAbrirNotas: () => void
+  totalNotas: number
 }
 
 // Sidebar interno de carpetas, replicando la columna izquierda de la
@@ -36,7 +44,7 @@ type Props = {
 //      espejo en vez de la fuente invertiría esa relación.
 // Las entradas de "Filtros" (Analizados por IA, Horarios, Sin materia) sí son
 // puramente derivadas, y está bien que lo sean: son vistas, no ubicaciones.
-export default function SidebarCarpetas({ materias, archivos, seleccionada, onSeleccionar }: Props) {
+export default function SidebarCarpetas({ materias, archivos, seleccionada, onSeleccionar, notasActiva, onAbrirNotas, totalNotas }: Props) {
   const especiales: { id: CarpetaId; label: string; Icono: typeof Folder }[] = [
     { id: { tipo: 'analizados' }, label: 'Analizados por IA', Icono: Sparkles },
     { id: { tipo: 'horarios' }, label: 'Horarios', Icono: CalendarDays },
@@ -49,7 +57,7 @@ export default function SidebarCarpetas({ materias, archivos, seleccionada, onSe
         label="Todos"
         Icono={seleccionada.tipo === 'todos' ? FolderOpen : Folder}
         conteo={archivos.length}
-        activa={seleccionada.tipo === 'todos'}
+        activa={!notasActiva && seleccionada.tipo === 'todos'}
         onClick={() => onSeleccionar({ tipo: 'todos' })}
       />
 
@@ -58,7 +66,7 @@ export default function SidebarCarpetas({ materias, archivos, seleccionada, onSe
           <Separador texto="Materias" />
           {materias.map((m) => {
             const id: CarpetaId = { tipo: 'materia', materiaId: m.id }
-            const activa = mismaCarpeta(seleccionada, id)
+            const activa = !notasActiva && mismaCarpeta(seleccionada, id)
             return (
               <Fila
                 key={m.id}
@@ -76,8 +84,16 @@ export default function SidebarCarpetas({ materias, archivos, seleccionada, onSe
 
       <Separador texto="Filtros" />
       {especiales.map(({ id, label, Icono }) => (
-        <Fila key={label} label={label} Icono={Icono} conteo={contarPorCarpeta(archivos, id)} activa={mismaCarpeta(seleccionada, id)} onClick={() => onSeleccionar(id)} />
+        <Fila
+          key={label}
+          label={label}
+          Icono={Icono}
+          conteo={contarPorCarpeta(archivos, id)}
+          activa={!notasActiva && mismaCarpeta(seleccionada, id)}
+          onClick={() => onSeleccionar(id)}
+        />
       ))}
+      <Fila label="Notas" Icono={StickyNote} conteo={totalNotas} activa={notasActiva} onClick={onAbrirNotas} />
     </nav>
   )
 }

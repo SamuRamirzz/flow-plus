@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { Check, Trash2 } from 'lucide-react'
+import { Check, Trash2, StickyNote } from 'lucide-react'
 import { IconoMateria } from '@/components/ui/iconosMateria'
 
 type Props = {
@@ -14,6 +14,11 @@ type Props = {
   onToggle: () => void
   onDelete: () => void
   onEdit: (nuevo: string) => void
+  // Sprint Sistema de Notas Unificado — abre el detalle de esta tarea (con
+  // su sección de Notas). Opcional para no romper cualquier otro lugar que
+  // use TaskRow sin esta capacidad (hoy no hay ninguno, pero evita acoplar
+  // el componente a que SIEMPRE exista un detalle).
+  onAbrirDetalle?: () => void
 }
 
 const PRIORIDAD_STYLE: Record<string, string> = {
@@ -33,7 +38,7 @@ function formatFecha(f: string) {
   return { texto: `Venció hace ${Math.abs(diff)} días`, clase: 'text-danger' }
 }
 
-export default function TaskRow({ titulo, materia, color, icono, prioridad, fecha, completada, onToggle, onDelete, onEdit }: Props) {
+export default function TaskRow({ titulo, materia, color, icono, prioridad, fecha, completada, onToggle, onDelete, onEdit, onAbrirDetalle }: Props) {
   const [editando, setEditando] = useState(false)
   const [valor, setValor] = useState(titulo)
   const info = fecha ? formatFecha(fecha) : null
@@ -85,9 +90,16 @@ export default function TaskRow({ titulo, materia, color, icono, prioridad, fech
 
       <span className={`text-xs font-mono ${info?.clase ?? 'text-muted'}`}>{info?.texto ?? '—'}</span>
 
-      <button onClick={onDelete} title="Eliminar tarea" className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition p-1">
-        <Trash2 size={13} />
-      </button>
+      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+        {onAbrirDetalle && (
+          <button onClick={onAbrirDetalle} title="Ver notas y detalle" className="text-muted hover:text-coral p-1">
+            <StickyNote size={13} />
+          </button>
+        )}
+        <button onClick={onDelete} title="Eliminar tarea" className="text-muted hover:text-danger p-1">
+          <Trash2 size={13} />
+        </button>
+      </div>
     </div>
   )
 }

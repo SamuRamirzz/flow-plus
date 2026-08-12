@@ -1,13 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { resolverOperaciones, resolverNotas } from '../resolver'
-import type { OperacionRaw, OperacionCrearNotaRaw } from '../schema'
-import type { TareaContexto } from '../types'
+import { resolverOperaciones, resolverNotas, resolverOperacionesNotaExistente } from '../resolver'
+import type { OperacionRaw, OperacionCrearNotaRaw, OperacionNotaExistenteRaw } from '../schema'
+import type { TareaContexto, BloqueHorarioContexto, ArchivoContexto, NotaContextoIA } from '../types'
 
 const MATE: TareaContexto = { id: 'tarea-mate', titulo: 'Examen de matemáticas', materia: 'Matemáticas', fecha: '2026-07-30', completada: false }
 const MATE2: TareaContexto = { id: 'tarea-mate-2', titulo: 'Tarea de matemáticas', materia: 'Matemáticas', fecha: '2026-08-02', completada: false }
 const BIO: TareaContexto = { id: 'tarea-bio', titulo: 'Laboratorio de biología', materia: 'Biología', fecha: '2026-07-29', completada: false }
 
 const tareasExistentes = [MATE, MATE2, BIO] // índices 0, 1, 2
+
+const INGLES_LUNES: BloqueHorarioContexto = { id: 'bloque-ingles', nombre: 'Inglés', diaSemana: 1, horaInicio: '08:00' }
+const INGRESO: BloqueHorarioContexto = { id: 'bloque-ingreso', nombre: 'Ingreso', diaSemana: 1, horaInicio: '07:00' }
+const bloquesExistentes = [INGLES_LUNES, INGRESO] // índices 0, 1
+
+const APUNTE_FISICA: ArchivoContexto = { id: 'archivo-fisica', nombre: 'Apunte de Física' }
+const COLLECTIVE_NOUNS: ArchivoContexto = { id: 'archivo-cn', nombre: 'Collective Nouns.pptx' }
+const archivosExistentes = [APUNTE_FISICA, COLLECTIVE_NOUNS] // índices 0, 1
+
+const NOTA_MATE: NotaContextoIA = { id: 'nota-mate', anclaTexto: 'tarea "Examen de matemáticas"', contenido: 'repasar integrales' }
+const NOTA_INGRESO: NotaContextoIA = { id: 'nota-ingreso', anclaTexto: 'bloque "Ingreso" (Lun)', contenido: 'llevar el carnet' }
+const notasExistentes = [NOTA_MATE, NOTA_INGRESO] // índices 0, 1
 
 function crearRaw(overrides: Partial<Extract<OperacionRaw, { tipo: 'crear' }>> = {}): OperacionRaw {
   return {
@@ -149,7 +161,21 @@ function notaRaw(overrides: Partial<OperacionCrearNotaRaw> = {}): OperacionRaw {
     descripcion: 'la de matemáticas',
     indiceObjetivo: null,
     indicesCandidatos: [],
+    objetivoTipo: 'tarea',
     contenidoNota: 'faltó resolver el punto 3',
+    ...overrides,
+  }
+}
+
+// Sprint Sistema de Notas Unificado (Parte E) — mismo espíritu que notaRaw:
+// editar_nota/borrar_nota comparten forma (OperacionNotaExistenteRaw).
+function notaExistenteRaw(overrides: Partial<OperacionNotaExistenteRaw> = {}): OperacionRaw {
+  return {
+    tipo: 'editar_nota',
+    descripcion: 'la nota de matemáticas',
+    indiceObjetivo: null,
+    indicesCandidatos: [],
+    contenidoNuevo: 'contenido actualizado',
     ...overrides,
   }
 }
@@ -171,17 +197,17 @@ describe('resolverOperaciones — crear_nota queda EXCLUIDO del array público',
 })
 
 describe('resolverNotas', () => {
-  it('índice único válido → resuelto contra la tarea real', () => {
-    const [nota] = resolverNotas([notaRaw({ indiceObjetivo: 0, contenidoNota: 'faltó el punto 3' })], tareasExistentes)
+  it('índice único válido, objetivoTipo "tarea" → resuelto contra la tarea real', () => {
+    const [nota] = resolverNotas([notaRaw({ indiceObjetivo: 0, contenidoNota: 'faltó el punto 3' })], tareasExistentes, bloquesExistentes, archivosExistentes)
     expect(nota.estado).toBe('resuelto')
     if (nota.estado === 'resuelto') {
-      expect(nota.tareaId).toBe(MATE.id)
+      expect(nota.ancla).toEqual({ tipo: 'tarea', id: MATE.id })
       expect(nota.contenidoNota).toBe('faltó el punto 3')
     }
   })
 
   it('>1 candidato válido → ambiguo, con la lista real de candidatos (mismo criterio defensivo que modificar/borrar)', () => {
-    const [nota] = resolverNotas([notaRaw({ indicesCandidatos: [0, 1] })], tareasExistentes)
+    const [nota] = resolverNotas([notaRaw({ indicesCandidatos: [0, 1] })], tareasExistentes, bloquesExistentes, archivosExistentes)
     expect(nota.estado).toBe('ambiguo')
     if (nota.estado === 'ambiguo') {
       expect(nota.candidatos).toEqual([MATE, MATE2])
@@ -190,27 +216,149 @@ describe('resolverNotas', () => {
   })
 
   it('índice alucinado (fuera de rango) → sin_coincidencias, nunca crea la nota en la tarea equivocada', () => {
-    const [nota] = resolverNotas([notaRaw({ indiceObjetivo: 99 })], tareasExistentes)
+    const [nota] = resolverNotas([notaRaw({ indiceObjetivo: 99 })], tareasExistentes, bloquesExistentes, archivosExistentes)
     expect(nota.estado).toBe('sin_coincidencias')
   })
 
   it('sin ningún índice ni candidato → sin_coincidencias', () => {
-    const [nota] = resolverNotas([notaRaw()], tareasExistentes)
+    const [nota] = resolverNotas([notaRaw()], tareasExistentes, bloquesExistentes, archivosExistentes)
     expect(nota.estado).toBe('sin_coincidencias')
   })
 
   it('ignora por completo las operaciones que no son crear_nota', () => {
-    const notas = resolverNotas([crearRaw(), refRaw({ tipo: 'borrar', indiceObjetivo: 0 })], tareasExistentes)
+    const notas = resolverNotas([crearRaw(), refRaw({ tipo: 'borrar', indiceObjetivo: 0 })], tareasExistentes, bloquesExistentes, archivosExistentes)
     expect(notas).toHaveLength(0)
   })
 
   it('cada nota resuelta tiene un id propio', () => {
     const [n1, n2] = resolverNotas(
       [notaRaw({ indiceObjetivo: 0 }), notaRaw({ indiceObjetivo: 2, contenidoNota: 'otra nota' })],
-      tareasExistentes
+      tareasExistentes,
+      bloquesExistentes,
+      archivosExistentes
     )
     expect(n1.id).toBeTruthy()
     expect(n2.id).toBeTruthy()
     expect(n1.id).not.toBe(n2.id)
+  })
+
+  // Sprint Sistema de Notas Unificado (Parte E)
+  it('objetivoTipo "bloque_horario" → resuelto contra el bloque real, no contra tareas', () => {
+    const [nota] = resolverNotas(
+      [notaRaw({ objetivoTipo: 'bloque_horario', indiceObjetivo: 0, contenidoNota: 'llevar el libro' })],
+      tareasExistentes,
+      bloquesExistentes,
+      archivosExistentes
+    )
+    expect(nota.estado).toBe('resuelto')
+    if (nota.estado === 'resuelto') expect(nota.ancla).toEqual({ tipo: 'bloque_horario', id: INGLES_LUNES.id })
+  })
+
+  it('objetivoTipo "bloque_horario" resuelve correctamente contra un bloque ESPECIAL (ingreso/salida/descanso)', () => {
+    const [nota] = resolverNotas(
+      [notaRaw({ objetivoTipo: 'bloque_horario', indiceObjetivo: 1, contenidoNota: 'llevar el carnet' })],
+      tareasExistentes,
+      bloquesExistentes,
+      archivosExistentes
+    )
+    expect(nota.estado).toBe('resuelto')
+    if (nota.estado === 'resuelto') expect(nota.ancla).toEqual({ tipo: 'bloque_horario', id: INGRESO.id })
+  })
+
+  it('objetivoTipo "bloque_horario" con >1 candidato → ambiguo con los BLOQUES candidatos (no tareas)', () => {
+    const [nota] = resolverNotas(
+      [notaRaw({ objetivoTipo: 'bloque_horario', indicesCandidatos: [0, 1] })],
+      tareasExistentes,
+      bloquesExistentes,
+      archivosExistentes
+    )
+    expect(nota.estado).toBe('ambiguo')
+    if (nota.estado === 'ambiguo') expect(nota.candidatos).toEqual([INGLES_LUNES, INGRESO])
+  })
+
+  it('índice fuera de rango en objetivoTipo "bloque_horario" → sin_coincidencias', () => {
+    const [nota] = resolverNotas([notaRaw({ objetivoTipo: 'bloque_horario', indiceObjetivo: 99 })], tareasExistentes, bloquesExistentes, archivosExistentes)
+    expect(nota.estado).toBe('sin_coincidencias')
+  })
+
+  // Sprint Sistema de Notas Unificado (Parte E, cierre del gap de "archivo
+  // existente") — mismo criterio que objetivoTipo "bloque_horario": resuelve
+  // contra `archivosExistentes`, nunca contra tareas ni bloques.
+  it('objetivoTipo "archivo" → resuelto contra el archivo real', () => {
+    const [nota] = resolverNotas(
+      [notaRaw({ objetivoTipo: 'archivo', indiceObjetivo: 1, contenidoNota: 'revisar la sección de animales' })],
+      tareasExistentes,
+      bloquesExistentes,
+      archivosExistentes
+    )
+    expect(nota.estado).toBe('resuelto')
+    if (nota.estado === 'resuelto') expect(nota.ancla).toEqual({ tipo: 'archivo', id: COLLECTIVE_NOUNS.id })
+  })
+
+  it('objetivoTipo "archivo" con >1 candidato → ambiguo con los ARCHIVOS candidatos', () => {
+    const [nota] = resolverNotas(
+      [notaRaw({ objetivoTipo: 'archivo', indicesCandidatos: [0, 1] })],
+      tareasExistentes,
+      bloquesExistentes,
+      archivosExistentes
+    )
+    expect(nota.estado).toBe('ambiguo')
+    if (nota.estado === 'ambiguo') expect(nota.candidatos).toEqual([APUNTE_FISICA, COLLECTIVE_NOUNS])
+  })
+
+  it('índice fuera de rango en objetivoTipo "archivo" → sin_coincidencias', () => {
+    const [nota] = resolverNotas([notaRaw({ objetivoTipo: 'archivo', indiceObjetivo: 99 })], tareasExistentes, bloquesExistentes, archivosExistentes)
+    expect(nota.estado).toBe('sin_coincidencias')
+  })
+})
+
+describe('resolverOperacionesNotaExistente (Sprint Sistema de Notas Unificado)', () => {
+  it('editar_nota con índice único → resuelto, accion "editar", con el contenido nuevo', () => {
+    const [op] = resolverOperacionesNotaExistente([notaExistenteRaw({ tipo: 'editar_nota', indiceObjetivo: 0 })], notasExistentes)
+    expect(op.estado).toBe('resuelto')
+    expect(op.accion).toBe('editar')
+    if (op.estado === 'resuelto') {
+      expect(op.notaId).toBe(NOTA_MATE.id)
+      expect(op.contenidoNuevo).toBe('contenido actualizado')
+    }
+  })
+
+  it('borrar_nota con índice único → resuelto, accion "borrar", sin contenidoNuevo', () => {
+    const [op] = resolverOperacionesNotaExistente(
+      [notaExistenteRaw({ tipo: 'borrar_nota', indiceObjetivo: 1, contenidoNuevo: null })],
+      notasExistentes
+    )
+    expect(op.estado).toBe('resuelto')
+    expect(op.accion).toBe('borrar')
+    if (op.estado === 'resuelto') {
+      expect(op.notaId).toBe(NOTA_INGRESO.id)
+      expect(op.contenidoNuevo).toBeUndefined()
+    }
+  })
+
+  it('>1 candidato válido → ambiguo, con la lista real de NOTAS candidatas', () => {
+    const [op] = resolverOperacionesNotaExistente([notaExistenteRaw({ tipo: 'borrar_nota', indicesCandidatos: [0, 1] })], notasExistentes)
+    expect(op.estado).toBe('ambiguo')
+    if (op.estado === 'ambiguo') expect(op.candidatos).toEqual([NOTA_MATE, NOTA_INGRESO])
+  })
+
+  it('índice alucinado (fuera de rango) → sin_coincidencias, nunca edita/borra la nota equivocada', () => {
+    const [op] = resolverOperacionesNotaExistente([notaExistenteRaw({ tipo: 'editar_nota', indiceObjetivo: 99 })], notasExistentes)
+    expect(op.estado).toBe('sin_coincidencias')
+  })
+
+  it('ignora por completo las operaciones que no son editar_nota/borrar_nota', () => {
+    const ops = resolverOperacionesNotaExistente([crearRaw(), notaRaw({ indiceObjetivo: 0 })], notasExistentes)
+    expect(ops).toHaveLength(0)
+  })
+
+  it('cada operación resuelta tiene un id propio', () => {
+    const [op1, op2] = resolverOperacionesNotaExistente(
+      [notaExistenteRaw({ tipo: 'editar_nota', indiceObjetivo: 0 }), notaExistenteRaw({ tipo: 'borrar_nota', indiceObjetivo: 1, contenidoNuevo: null })],
+      notasExistentes
+    )
+    expect(op1.id).toBeTruthy()
+    expect(op2.id).toBeTruthy()
+    expect(op1.id).not.toBe(op2.id)
   })
 })
