@@ -36,7 +36,7 @@ function accionesFalsas() {
   let contador = 0
   const materiasCreadas: string[] = []
   const tareasCreadas: { titulo: string; materiaId: string | null }[] = []
-  const bloquesCreados: { materiaId: string }[] = []
+  const bloquesCreados: { tipo?: string; materiaId: string | null }[] = []
   const completadasPatch: string[] = []
 
   const acciones: AccionesSincronizacion = {
@@ -73,8 +73,8 @@ function accionesFalsas() {
       return { ok: true as const, tarea: {} as never, avisoFecha: null, colisiones: [], posibleDuplicado: null }
     }),
     crearBloqueHorario: vi.fn(async (input) => {
-      bloquesCreados.push({ materiaId: input.materiaId })
-      return { ok: true as const, bloque: { id: `real-bloque-${++contador}`, ...input } }
+      bloquesCreados.push({ tipo: input.tipo, materiaId: input.materiaId })
+      return { ok: true as const, bloque: { id: `real-bloque-${++contador}`, tipo: 'clase' as const, ...input } }
     }),
   }
 
@@ -117,7 +117,22 @@ describe('sincronizarInvitado', () => {
     const datos = construirEscenario()
     const { acciones, bloquesCreados } = accionesFalsas()
     await sincronizarInvitado(datos, acciones)
-    expect(bloquesCreados).toEqual([{ materiaId: 'real-materia-2' }]) // Historia es la 2da materia
+    expect(bloquesCreados).toEqual([{ tipo: 'clase', materiaId: 'real-materia-2' }]) // Historia es la 2da materia
+  })
+
+  // Sprint Zonas de horario — un bloque especial guardado en modo invitado
+  // (sin materia local) se sincroniza directo con materiaId: null, sin
+  // pasar por el remapeo de materias (que no aplica: no tiene una).
+  it('sincroniza un bloque especial (ingreso) con materiaId null, sin intentar remapearlo', async () => {
+    let datos = construirEscenario()
+    const especial = agregarBloquePura(datos, { tipo: 'ingreso', materiaId: null, diaSemana: 1, horaInicio: '07:00', horaFin: null })
+    datos = especial.datos
+
+    const { acciones, bloquesCreados } = accionesFalsas()
+    const resultado = await sincronizarInvitado(datos, acciones)
+
+    expect(bloquesCreados).toContainEqual({ tipo: 'ingreso', materiaId: null })
+    expect(resultado).toEqual({ ok: true, resumen: { materias: 2, tareas: 2, bloques: 2 } })
   })
 
   it('devuelve el resumen correcto en éxito completo', async () => {

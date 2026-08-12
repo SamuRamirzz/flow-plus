@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Trash2 } from 'lucide-react'
+import { Trash2, LogIn, LogOut, Coffee } from 'lucide-react'
 import type { Materia } from '@/lib/types'
-import type { BloqueHorario, DiaSemana } from '@/lib/horario/tipos'
+import type { BloqueHorario, DiaSemana, TipoBloqueHorario } from '@/lib/horario/tipos'
 import { bloquesDeCelda, construirFilas, diasVisibles, etiquetaFranja } from '@/lib/horario/grilla'
 import { formatearHora, type FormatoReloj } from '@/lib/hora'
 import { usePreferencias } from '@/lib/preferencias'
@@ -59,6 +59,19 @@ function clasesDeColumnas(cantidadDias: number): string {
 function tinte(color: string | undefined, alphaHex: string): string {
   const base = color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : COLOR_POR_DEFECTO
   return `${base}${alphaHex}`
+}
+
+// Sprint Zonas de horario — un bloque especial no tiene color de materia
+// (no tiene materia), así que su distinción visual es un color FIJO propio
+// por tipo + un ícono, no el punto de color que ya usan las clases. Verde
+// para ingreso/salida (entrar/salir del día, tono afín al resto de "éxito"
+// en la app — `success` del theme), coral para descanso — mismo tono que ya
+// usa la fila "hueco" derivada, porque conceptualmente son la misma idea
+// (un tramo sin clase), solo que uno es guardado y el otro inferido.
+const ESPECIAL: Record<Exclude<TipoBloqueHorario, 'clase'>, { icono: typeof LogIn; label: string; color: string }> = {
+  ingreso: { icono: LogIn, label: 'Ingreso', color: 'var(--color-success)' },
+  salida: { icono: LogOut, label: 'Salida', color: 'var(--color-success)' },
+  descanso: { icono: Coffee, label: 'Descanso', color: 'var(--color-coral)' },
 }
 
 type Props = {
@@ -315,7 +328,33 @@ function Celda({
   return (
     <div className="flex flex-col gap-1 h-full">
       {bloques.map((b) => {
-        const materia = materiaPorId.get(b.materiaId)
+        if (b.tipo !== 'clase') {
+          const { icono: Icono, label, color } = ESPECIAL[b.tipo]
+          return (
+            <div
+              key={b.id}
+              onClick={() => onEditar(b)}
+              title="Clic para editar"
+              className="group relative flex items-center min-h-[46px] rounded-xl px-2.5 py-2 transition-colors cursor-pointer"
+              style={{ backgroundColor: `color-mix(in srgb, ${color} 18%, transparent)` }}
+            >
+              <Icono size={13} style={{ color }} className="flex-shrink-0 mr-2" />
+              <span className="flex-1 min-w-0 text-[13px] leading-tight text-paper break-words">{label}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onQuitar(b.id)
+                }}
+                title={`Quitar ${label}`}
+                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted hover:text-danger transition p-1 flex-shrink-0 -mr-1"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          )
+        }
+
+        const materia = b.materiaId ? materiaPorId.get(b.materiaId) : undefined
         return (
           <div
             key={b.id}

@@ -11,7 +11,7 @@ const nombres = new Map([
 ])
 
 function guardado(overrides: Partial<BloqueHorario> = {}): BloqueHorario {
-  return { id: 'b1', materiaId: MAT_CALCULO, diaSemana: 1, horaInicio: '07:00', horaFin: '09:00', aula: null, profesor: null, ...overrides }
+  return { id: 'b1', tipo: 'clase', materiaId: MAT_CALCULO, diaSemana: 1, horaInicio: '07:00', horaFin: '09:00', aula: null, profesor: null, ...overrides }
 }
 
 function propuesto(overrides: Partial<BloquePropuesto> = {}): BloquePropuesto {
@@ -114,6 +114,59 @@ describe('diffHorario — clasificación', () => {
   })
 })
 
+describe('diffHorario — bloques especiales (Sprint Zonas de horario)', () => {
+  it('un ingreso nuevo (sin par guardado) → agregado, sin pasar por nombrePorMateriaId', () => {
+    const d = diffHorario({
+      guardado: [],
+      propuesto: [{ tipo: 'ingreso', materia: '', diaSemana: 1, horaInicio: '07:00', horaFin: null, aula: null, confidence: 1 }],
+      nombrePorMateriaId: new Map(), // vacío a propósito: un especial no debería necesitarlo
+    })
+    expect(d.agregados).toHaveLength(1)
+  })
+
+  it('mismo tipo especial y día, ya guardado, misma hora → sinCambios', () => {
+    const d = diffHorario({
+      guardado: [guardado({ tipo: 'descanso', materiaId: null, diaSemana: 2, horaInicio: '10:00', horaFin: '10:30' })],
+      propuesto: [{ tipo: 'descanso', materia: '', diaSemana: 2, horaInicio: '10:00', horaFin: '10:30', aula: null, confidence: 1 }],
+      nombrePorMateriaId: new Map(),
+    })
+    expect(d.sinCambios).toHaveLength(1)
+    expect(d.agregados).toHaveLength(0)
+  })
+
+  it('mismo tipo especial y día, hora distinta → movido (igual que una clase)', () => {
+    const d = diffHorario({
+      guardado: [guardado({ tipo: 'salida', materiaId: null, diaSemana: 5, horaInicio: '15:00', horaFin: null })],
+      propuesto: [{ tipo: 'salida', materia: '', diaSemana: 5, horaInicio: '16:00', horaFin: null, aula: null, confidence: 1 }],
+      nombrePorMateriaId: new Map(),
+    })
+    expect(d.movidos).toHaveLength(1)
+  })
+
+  it('un ingreso y una clase el mismo día NUNCA se confunden entre sí (claves con prefijo distinto)', () => {
+    const d = diffHorario({
+      guardado: [guardado({ tipo: 'ingreso', materiaId: null, diaSemana: 1, horaInicio: '07:00', horaFin: null })],
+      propuesto: [propuesto({ diaSemana: 1 })], // 'clase', materia 'Cálculo II'
+      nombrePorMateriaId: nombres,
+    })
+    // El ingreso guardado no matchea contra la clase propuesta (claves
+    // distintas) → la clase es agregada y el ingreso queda eliminado.
+    expect(d.agregados).toHaveLength(1)
+    expect(d.eliminados).toHaveLength(1)
+    expect(d.eliminados[0].tipo).toBe('ingreso')
+  })
+
+  it('dos ingresos en días distintos son bloques independientes, no se funden', () => {
+    const d = diffHorario({
+      guardado: [guardado({ tipo: 'ingreso', materiaId: null, diaSemana: 1, horaInicio: '07:00', horaFin: null })],
+      propuesto: [{ tipo: 'ingreso', materia: '', diaSemana: 3, horaInicio: '07:00', horaFin: null, aula: null, confidence: 1 }],
+      nombrePorMateriaId: new Map(),
+    })
+    expect(d.agregados).toHaveLength(1) // el ingreso del miércoles
+    expect(d.eliminados).toHaveLength(1) // el ingreso del lunes ya no aparece
+  })
+})
+
 describe('detectarMateriasNuevas', () => {
   it('un bloque con una materia que no existe todavía → esa materia es nueva', () => {
     const nuevas = detectarMateriasNuevas([propuesto({ materia: 'Álgebra Lineal' })], [{ nombre: 'Cálculo II' }])
@@ -151,6 +204,14 @@ describe('detectarMateriasNuevas', () => {
       []
     )
     expect(nuevas).toEqual(['Matemáticas', 'Inglés', 'Educación Física'])
+  })
+
+  it('un bloque especial con materia sentinel "" nunca cuenta como "materia nueva llamada vacío"', () => {
+    const nuevas = detectarMateriasNuevas(
+      [{ tipo: 'ingreso', materia: '', diaSemana: 1, horaInicio: '07:00', horaFin: null, aula: null, confidence: 1 }],
+      []
+    )
+    expect(nuevas).toEqual([])
   })
 })
 

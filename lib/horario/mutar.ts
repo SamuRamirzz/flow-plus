@@ -1,11 +1,16 @@
 import { apiPost, apiPatch, apiDelete } from '@/lib/api/cliente'
 import { esInvitado } from '@/lib/invitado/estado'
 import { crearBloqueHorarioInvitado, actualizarBloqueHorarioInvitado, eliminarBloqueHorarioInvitado } from '@/lib/invitado/datos'
-import type { BloqueHorario, DiaSemana } from './tipos'
+import type { BloqueHorario, DiaSemana, TipoBloqueHorario } from './tipos'
 import { filaABloqueHorario, type FilaHorario } from './mapear'
 
 export type NuevoBloqueInput = {
-  materiaId: string
+  // Sprint Zonas de horario — opcional, default 'clase' (mismo default que
+  // crearBloqueHorarioSchema en el servidor) para que ningún llamador
+  // existente (AddTaskBar-de-horario, importación de foto) tenga que
+  // cambiar.
+  tipo?: TipoBloqueHorario
+  materiaId: string | null
   diaSemana: DiaSemana
   horaInicio: string | null
   horaFin: string | null
@@ -26,8 +31,9 @@ export async function eliminarBloqueHorario(id: string): Promise<{ ok: true } | 
 }
 
 export type CambiosBloqueHorario = {
+  tipo?: TipoBloqueHorario
   activo?: boolean
-  materiaId?: string
+  materiaId?: string | null
   horaInicio?: string | null
   horaFin?: string | null
   aula?: string | null

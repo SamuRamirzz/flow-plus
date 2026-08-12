@@ -3,6 +3,7 @@ import {
   crearMateriaSchema,
   crearTareaSchema,
   actualizarTareaSchema,
+  crearBloqueHorarioSchema,
   actualizarBloqueHorarioSchema,
   fusionarMateriasSchema,
   solicitarEliminacionCuentaSchema,
@@ -122,6 +123,41 @@ describe('actualizarTareaSchema', () => {
   })
 })
 
+describe('crearBloqueHorarioSchema (Sprint Zonas de horario)', () => {
+  const UUID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
+
+  it('sin tipo, con materiaId → válido, tipo por defecto "clase"', () => {
+    const r = crearBloqueHorarioSchema.safeParse({ materiaId: UUID, diaSemana: 1 })
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.tipo).toBe('clase')
+  })
+
+  it('tipo "clase" sin materiaId → rechazado (una clase necesita materia)', () => {
+    const r = crearBloqueHorarioSchema.safeParse({ tipo: 'clase', materiaId: null, diaSemana: 1 })
+    expect(r.success).toBe(false)
+  })
+
+  it('tipo "ingreso" con materiaId: null → válido', () => {
+    const r = crearBloqueHorarioSchema.safeParse({ tipo: 'ingreso', materiaId: null, diaSemana: 1, horaInicio: '07:00' })
+    expect(r.success).toBe(true)
+  })
+
+  it('tipo "ingreso" con un materiaId real → rechazado (un bloque especial no lleva materia)', () => {
+    const r = crearBloqueHorarioSchema.safeParse({ tipo: 'ingreso', materiaId: UUID, diaSemana: 1 })
+    expect(r.success).toBe(false)
+  })
+
+  it('tipo fuera del enum → rechazado', () => {
+    const r = crearBloqueHorarioSchema.safeParse({ tipo: 'almuerzo', materiaId: null, diaSemana: 1 })
+    expect(r.success).toBe(false)
+  })
+
+  it('materiaId ausente (ni siquiera null) → rechazado — el campo es nullable, no optional', () => {
+    const r = crearBloqueHorarioSchema.safeParse({ diaSemana: 1 })
+    expect(r.success).toBe(false)
+  })
+})
+
 describe('actualizarBloqueHorarioSchema (Sub-sprint 8.2)', () => {
   it('acepta materiaId solo (cambiar materia de un bloque existente)', () => {
     expect(actualizarBloqueHorarioSchema.safeParse({ materiaId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' }).success).toBe(true)
@@ -143,6 +179,35 @@ describe('actualizarBloqueHorarioSchema (Sub-sprint 8.2)', () => {
 
   it('acepta cambiar solo horaFin sin horaInicio (no puede validar el orden sin la otra)', () => {
     expect(actualizarBloqueHorarioSchema.safeParse({ horaFin: '10:00' }).success).toBe(true)
+  })
+
+  // Sprint Zonas de horario
+  it('cambiar tipo a "clase" sin mandar materiaId en el mismo body → rechazado', () => {
+    const r = actualizarBloqueHorarioSchema.safeParse({ tipo: 'clase' })
+    expect(r.success).toBe(false)
+  })
+
+  it('cambiar tipo a "clase" CON materiaId en el mismo body → válido', () => {
+    const r = actualizarBloqueHorarioSchema.safeParse({ tipo: 'clase', materiaId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' })
+    expect(r.success).toBe(true)
+  })
+
+  it('cambiar tipo a "ingreso" con materiaId: null en el mismo body → válido', () => {
+    const r = actualizarBloqueHorarioSchema.safeParse({ tipo: 'ingreso', materiaId: null })
+    expect(r.success).toBe(true)
+  })
+
+  it('cambiar solo materiaId sin tocar tipo (bloque ya es "clase") → válido, sin exigir tipo en el body', () => {
+    const r = actualizarBloqueHorarioSchema.safeParse({ materiaId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' })
+    expect(r.success).toBe(true)
+  })
+
+  it('materiaId: null solo (sin tipo) → válido en la forma — la app nunca lo manda sin tipo, pero el schema no lo prohíbe', () => {
+    // El PATCH real (guardarEdicionBloque en app/horario/page.tsx) siempre
+    // manda tipo+materiaId juntos cuando cambia de tipo — este caso prueba
+    // el límite exacto de lo que el refine sí permite cuando tipo no viene.
+    const r = actualizarBloqueHorarioSchema.safeParse({ materiaId: null })
+    expect(r.success).toBe(true)
   })
 })
 

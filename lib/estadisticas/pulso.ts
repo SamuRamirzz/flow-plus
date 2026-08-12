@@ -27,12 +27,17 @@ function minutosDesdeMedianoche(horaHHMM: string): number {
 // Bloques de HOY que todavía no empezaron, ordenados por el que está más
 // cerca. Bloques ya iniciados o terminados no cuentan como "próxima
 // clase" — el pulso del día mira hacia adelante, no hacia atrás.
+//
+// Sprint Zonas de horario — solo bloques `tipo: 'clase'` cuentan como
+// "próxima clase": un "Ingreso" o "Descanso" agendado antes de la clase
+// real de hoy no debe robarle el lugar en esta tarjeta (y ni siquiera podría
+// mostrarse bien — no tiene materia que buscar en `materias`).
 export function proximaClaseHoy(horario: BloqueHorario[], materias: Materia[], hoy: string, horaActual: string): ProximaClase {
   const diaHoy = diaISODeFecha(hoy)
   const minutosAhora = minutosDesdeMedianoche(horaActual)
 
   const candidatos = horario
-    .filter((b) => b.diaSemana === diaHoy && b.horaInicio !== null)
+    .filter((b) => b.tipo === 'clase' && b.diaSemana === diaHoy && b.horaInicio !== null)
     .map((b) => ({ bloque: b, minutosInicio: minutosDesdeMedianoche(b.horaInicio as string) }))
     .filter((c) => c.minutosInicio > minutosAhora)
     .sort((a, b) => a.minutosInicio - b.minutosInicio)

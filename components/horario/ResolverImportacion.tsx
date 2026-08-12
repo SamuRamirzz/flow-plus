@@ -124,7 +124,13 @@ export default function ResolverImportacion({ salida, diff, bloquesActuales, mat
 
           <div className="flex flex-col gap-2">
             {conflictos.map((c) => {
-              const nombreExistente = nombrePorMateriaId.get(c.existente.materiaId) ?? '—'
+              // c.existente.materiaId nunca es null en la práctica —
+              // detectarConflictosFusion (lib/horario/conflictos.ts) ya
+              // descarta bloques especiales antes de generar un conflicto,
+              // así que todo ConflictoFusion.existente es de tipo 'clase' —
+              // pero el tipo de BloqueHorario no lo puede expresar, así que
+              // el fallback sigue siendo necesario para TypeScript.
+              const nombreExistente = (c.existente.materiaId ? nombrePorMateriaId.get(c.existente.materiaId) : undefined) ?? '—'
               const decision = decisiones[c.existente.id]
               return (
                 <div key={c.existente.id} className="rounded-xl bg-panel-2/40 p-3">

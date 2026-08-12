@@ -26,6 +26,7 @@ describe('normalizarHora', () => {
 describe('filaABloqueHorario', () => {
   const fila: FilaHorario = {
     id: 'b1',
+    tipo: 'clase',
     materia_id: 'mat-1',
     dia_semana: 1,
     hora_inicio: '07:00:00',
@@ -37,6 +38,7 @@ describe('filaABloqueHorario', () => {
   it('traduce snake_case a camelCase y normaliza las horas', () => {
     expect(filaABloqueHorario(fila)).toEqual({
       id: 'b1',
+      tipo: 'clase',
       materiaId: 'mat-1',
       diaSemana: 1,
       horaInicio: '07:00',
@@ -44,6 +46,13 @@ describe('filaABloqueHorario', () => {
       aula: 'A301',
       profesor: 'Ana Restrepo',
     })
+  })
+
+  // Sprint Zonas de horario
+  it('un bloque especial (materia_id null) se mapea con materiaId null y su tipo intacto', () => {
+    const b = filaABloqueHorario({ ...fila, tipo: 'ingreso', materia_id: null })
+    expect(b.tipo).toBe('ingreso')
+    expect(b.materiaId).toBeNull()
   })
 
   it('aula/profesor ausentes se mapean tal cual (null)', () => {

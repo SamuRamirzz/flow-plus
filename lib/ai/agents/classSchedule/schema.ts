@@ -1,9 +1,13 @@
 import type { JSONSchema, OutputParser, ParseResult } from '@/lib/ai/types'
 import type { BloquePropuesto } from '@/lib/horario/diff'
-import type { DiaSemana } from '@/lib/horario/tipos'
+import type { DiaSemana, TipoBloqueHorario } from '@/lib/horario/tipos'
 import type { TipoRespuestaHorario } from './types'
 
 const TIPOS_RESPUESTA: TipoRespuestaHorario[] = ['bloques', 'no_es_horario', 'ilegible']
+
+// Sprint Zonas de horario — mismo enum que el resto del proyecto
+// (lib/horario/tipos.ts, lib/api/schemas.ts).
+const TIPOS_BLOQUE: TipoBloqueHorario[] = ['clase', 'ingreso', 'salida', 'descanso']
 
 // Tope defensivo: un horario semanal real no pasa de ~40 bloques. Si el
 // modelo se desvía y repite la misma fila cientos de veces (comportamiento
@@ -33,18 +37,28 @@ export const CLASS_SCHEDULE_OUTPUT_SCHEMA: JSONSchema = {
     },
     bloques: {
       type: 'array',
-      description: 'Una entrada por cada celda de clase: si una materia aparece lunes Y miércoles, son DOS entradas. Nunca repitas la misma entrada.',
+      description:
+        'Una entrada por cada celda de clase O bloque especial (ingreso/salida/descanso, si la imagen los marca explícitamente): si una materia aparece lunes Y miércoles, son DOS entradas. Nunca repitas la misma entrada.',
       items: {
         type: 'object',
         properties: {
-          materia: { type: 'string', description: 'Nombre de la materia tal como aparece en la imagen' },
+          tipo: {
+            type: 'string',
+            enum: TIPOS_BLOQUE,
+            description:
+              '"clase" para una celda de materia normal. "ingreso"/"salida"/"descanso" SOLO si la imagen marca explícitamente un bloque de entrada, salida o receso (ej. una fila literal "Ingreso" o "Descanso" en el horario) — no lo inventes para huecos entre clases.',
+          },
+          materia: {
+            type: 'string',
+            description: 'Nombre de la materia tal como aparece en la imagen. Cadena vacía si tipo no es "clase" (los bloques especiales no tienen materia).',
+          },
           diaSemana: { type: 'number', description: 'Día en ISO-8601: 1=lunes, 2=martes, 3=miércoles, 4=jueves, 5=viernes, 6=sábado, 7=domingo' },
           horaInicio: { type: 'string', description: 'Hora de inicio en formato HH:MM (24h). Cadena vacía si la imagen no la indica.' },
           horaFin: { type: 'string', description: 'Hora de fin en formato HH:MM (24h). Cadena vacía si la imagen no la indica.' },
-          aula: { type: 'string', description: 'Aula/salón si aparece. Cadena vacía si no.' },
+          aula: { type: 'string', description: 'Aula/salón si aparece. Cadena vacía si no (siempre vacía para bloques especiales).' },
           confidence: { type: 'number', description: 'Confianza de 0 a 1 en la lectura de ESTA fila' },
         },
-        required: ['materia', 'diaSemana', 'horaInicio', 'horaFin', 'aula', 'confidence'],
+        required: ['tipo', 'materia', 'diaSemana', 'horaInicio', 'horaFin', 'aula', 'confidence'],
       },
     },
   },
@@ -82,6 +96,11 @@ function diaValido(valor: unknown): DiaSemana | null {
   return Number.isInteger(n) && n >= 1 && n <= 7 ? (n as DiaSemana) : null
 }
 
+/** Cualquier valor fuera del enum (o ausente, en una foto vieja) cae a 'clase' — mismo default que el resto del proyecto. */
+function tipoValido(valor: unknown): TipoBloqueHorario {
+  return TIPOS_BLOQUE.includes(valor as TipoBloqueHorario) ? (valor as TipoBloqueHorario) : 'clase'
+}
+
 // Nunca lanza — misma disciplina que los otros parsers del proyecto:
 // devuelve ParseResult y el agente decide. Descarta filas inválidas en vez
 // de invalidar toda la respuesta: que el modelo lea mal UNA celda de la foto
@@ -113,14 +132,20 @@ export class ClassScheduleOutputParser implements OutputParser<ClassSchedulePars
         if (typeof item !== 'object' || item === null) continue
         const b = item as Record<string, unknown>
 
+        const tipo = tipoValido(b.tipo)
         const materia = normalizar(b.materia)
         const diaSemana = diaValido(b.diaSemana)
-        // Sin materia o sin día, el bloque no se puede ni mostrar en la
-        // grilla ni guardar — se descarta en vez de inventar un valor.
-        if (!materia || diaSemana === null) continue
+        // Sin día, el bloque no se puede ni mostrar en la grilla ni guardar
+        // — se descarta en vez de inventar un valor. Sin materia SOLO se
+        // descarta cuando tipo es 'clase': un bloque especial nunca trae
+        // materia (el prompt le pide mandar '' a propósito), así que exigir
+        // una acá lo descartaría siempre.
+        if (diaSemana === null) continue
+        if (tipo === 'clase' && !materia) continue
 
         bloques.push({
-          materia,
+          tipo,
+          materia: materia ?? '',
           diaSemana,
           horaInicio: horaValida(b.horaInicio),
           horaFin: horaValida(b.horaFin),

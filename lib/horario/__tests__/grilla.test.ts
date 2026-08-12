@@ -4,7 +4,7 @@ import type { BloqueHorario, DiaSemana } from '../tipos'
 
 let n = 0
 function bloque(dia: DiaSemana, horaInicio: string | null, horaFin: string | null, materiaId = 'mat-1'): BloqueHorario {
-  return { id: `b${++n}`, materiaId, diaSemana: dia, horaInicio, horaFin, aula: null, profesor: null }
+  return { id: `b${++n}`, tipo: 'clase', materiaId, diaSemana: dia, horaInicio, horaFin, aula: null, profesor: null }
 }
 
 describe('minutosDeHora', () => {

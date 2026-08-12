@@ -1,4 +1,4 @@
-import type { BloqueHorario, DiaSemana } from './tipos'
+import type { BloqueHorario, DiaSemana, TipoBloqueHorario } from './tipos'
 
 // Forma de una fila de la tabla `horario` tal como la devuelve Supabase
 // (snake_case) — el mapeo a BloqueHorario (camelCase) vive en un solo
@@ -7,7 +7,8 @@ import type { BloqueHorario, DiaSemana } from './tipos'
 // lado.
 export type FilaHorario = {
   id: string
-  materia_id: string
+  tipo: string
+  materia_id: string | null
   dia_semana: number
   hora_inicio: string | null
   hora_fin: string | null
@@ -37,6 +38,7 @@ export function normalizarHora(hora: string | null): string | null {
 export function filaABloqueHorario(fila: FilaHorario): BloqueHorario {
   return {
     id: fila.id,
+    tipo: fila.tipo as TipoBloqueHorario,
     materiaId: fila.materia_id,
     diaSemana: fila.dia_semana as DiaSemana,
     horaInicio: normalizarHora(fila.hora_inicio),

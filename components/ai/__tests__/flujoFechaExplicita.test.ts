@@ -25,7 +25,7 @@ describe('flujo completo: fecha explícita del usuario sobrevive de punta a punt
   // cualquier punto del flujo, inferirFechaEntrega caería acá y devolvería
   // el próximo lunes en vez del viernes que pidió el usuario.
   const horarioConLunes: BloqueHorario[] = [
-    { id: 'bloque-1', materiaId: 'mat-mate', diaSemana: 1, horaInicio: '08:00', horaFin: '09:00', aula: null, profesor: null },
+    { id: 'bloque-1', tipo: 'clase', materiaId: 'mat-mate', diaSemana: 1, horaInicio: '08:00', horaFin: '09:00', aula: null, profesor: null },
   ]
 
   it('caso reportado: materia con horario + fecha explícita distinta al día de clase → gana la fecha explícita en todo el flujo', () => {

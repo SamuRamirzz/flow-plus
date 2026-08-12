@@ -12,7 +12,7 @@ const nombres = new Map([
 ])
 
 function guardado(overrides: Partial<BloqueHorario> = {}): BloqueHorario {
-  return { id: 'g1', materiaId: MAT_FISICA, diaSemana: 1, horaInicio: '07:00', horaFin: '09:00', aula: null, profesor: null, ...overrides }
+  return { id: 'g1', tipo: 'clase', materiaId: MAT_FISICA, diaSemana: 1, horaInicio: '07:00', horaFin: '09:00', aula: null, profesor: null, ...overrides }
 }
 
 function propuesto(overrides: Partial<BloquePropuesto> = {}): BloquePropuesto {
@@ -80,6 +80,28 @@ describe('detectarConflictosFusion', () => {
     })
     expect(conflictos).toHaveLength(1)
     expect(conflictos[0].propuesto.diaSemana).toBe(1)
+  })
+
+  // Sprint Zonas de horario — un bloque especial no tiene materia con qué
+  // comparar; sin el guard, `p.materia === ''` (sentinel) compararía contra
+  // CUALQUIER materia guardada en la misma franja y nunca sería "misma
+  // materia", generando un conflicto falso en cada franja coincidente.
+  it('un bloque especial propuesto en la misma franja que una clase guardada NO genera conflicto', () => {
+    const conflictos = detectarConflictosFusion({
+      guardado: [guardado()], // clase Física I, lunes 07:00-09:00
+      propuesto: [{ tipo: 'ingreso', materia: '', diaSemana: 1, horaInicio: '07:00', horaFin: '09:00', aula: null, confidence: 1 }],
+      nombrePorMateriaId: nombres,
+    })
+    expect(conflictos).toHaveLength(0)
+  })
+
+  it('una clase propuesta en la misma franja que un bloque especial guardado tampoco genera conflicto', () => {
+    const conflictos = detectarConflictosFusion({
+      guardado: [guardado({ tipo: 'descanso', materiaId: null })],
+      propuesto: [propuesto()], // clase Química, misma franja
+      nombrePorMateriaId: nombres,
+    })
+    expect(conflictos).toHaveLength(0)
   })
 })
 

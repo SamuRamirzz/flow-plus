@@ -6,13 +6,12 @@ import { formatearHora, type FormatoReloj } from '@/lib/hora'
 // tiene sus propios tramos y no hay forma honesta de inventarlos.
 export type Franja = { horaInicio: string | null; horaFin: string | null; clave: string }
 
-// Una fila puede ser una franja real (con clases) o un HUECO derivado entre
-// dos franjas consecutivas — el equivalente al "DESCANSO" de un horario
-// escolar impreso. Es derivado, no un dato: la tabla `horario` exige
-// `materia_id NOT NULL`, así que un bloque sin materia (ingreso, recreo,
-// almuerzo) hoy no se puede guardar. Ver nota de alcance en el resumen del
-// sprint: representarlos de verdad exige migración + endpoints + parser, y
-// este ajuste es solo de presentación.
+// Una fila puede ser una franja real (con clases y/o bloques especiales) o
+// un HUECO derivado entre dos franjas consecutivas — un "descanso" que el
+// usuario nunca guardó explícitamente, distinto del tipo 'descanso' real de
+// BloqueHorario (Sprint Zonas de horario): este hueco es 100% inferido del
+// espacio libre entre dos tramos, nunca un dato guardado, y sigue
+// existiendo como fallback para huecos que el usuario no declaró a mano.
 export type FilaGrilla =
   | { tipo: 'franja'; clave: string; franja: Franja }
   | { tipo: 'hueco'; clave: string; horaInicio: string; horaFin: string }

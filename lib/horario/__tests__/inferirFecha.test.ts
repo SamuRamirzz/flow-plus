@@ -8,7 +8,7 @@ const MATEMATICAS = 'materia-mate'
 const HISTORIA = 'materia-historia'
 
 function bloque(overrides: Partial<BloqueHorario> = {}): BloqueHorario {
-  return { id: 'b1', materiaId: MATEMATICAS, diaSemana: 1, horaInicio: null, horaFin: null, aula: null, profesor: null, ...overrides }
+  return { id: 'b1', tipo: 'clase', materiaId: MATEMATICAS, diaSemana: 1, horaInicio: null, horaFin: null, aula: null, profesor: null, ...overrides }
 }
 
 const base = {

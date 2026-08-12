@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence } from 'motion/react'
 import { Plus, CalendarClock, ImagePlus, Loader2, Eraser } from 'lucide-react'
 import type { Materia } from '@/lib/types'
-import type { BloqueHorario, DiaSemana } from '@/lib/horario/tipos'
+import { TIPO_BLOQUE_OPCIONES, type BloqueHorario, type DiaSemana, type TipoBloqueHorario } from '@/lib/horario/tipos'
 import { cargarHorario } from '@/lib/horario/cargar'
 import { filaABloqueHorario, type FilaHorario } from '@/lib/horario/mapear'
 import { crearBloqueHorario, eliminarBloqueHorario, actualizarBloqueHorario } from '@/lib/horario/mutar'
@@ -51,6 +51,7 @@ export default function HorarioPage() {
   // lib/useDatosAgenda.ts para el mismo razonamiento aplicado a Realtime.
   const [invitado, setInvitado] = useState(false)
 
+  const [tipoBloque, setTipoBloque] = useState<TipoBloqueHorario>('clase')
   const [materiaId, setMateriaId] = useState<string>(MATERIA_NUEVA)
   const [nuevaMateria, setNuevaMateria] = useState('')
   const [diaSemana, setDiaSemana] = useState('1')
@@ -109,6 +110,33 @@ export default function HorarioPage() {
 
   async function agregarBloque() {
     if (guardando) return
+
+    // Sprint Zonas de horario — un bloque especial nunca resuelve/crea
+    // materia: se guarda directo con materiaId: null. El branch de materia
+    // (crear si hace falta, agregar al estado local) solo aplica a 'clase'.
+    if (tipoBloque !== 'clase') {
+      setGuardando(true)
+      const resultado = await crearBloqueHorario({
+        tipo: tipoBloque,
+        materiaId: null,
+        diaSemana: Number(diaSemana) as DiaSemana,
+        horaInicio: horaInicio || null,
+        horaFin: horaFin || null,
+      })
+      setGuardando(false)
+
+      if (!resultado.ok) {
+        notify(resultado.error, false)
+        return
+      }
+
+      setBloques((actuales) => [...actuales, resultado.bloque])
+      notify('Bloque agregado')
+      setHoraInicio('')
+      setHoraFin('')
+      return
+    }
+
     let materiaIdFinal = materiaId
 
     if (materiaId === MATERIA_NUEVA) {
@@ -128,6 +156,7 @@ export default function HorarioPage() {
     }
 
     const resultado = await crearBloqueHorario({
+      tipo: 'clase',
       materiaId: materiaIdFinal,
       diaSemana: Number(diaSemana) as DiaSemana,
       horaInicio: horaInicio || null,
@@ -274,25 +303,33 @@ export default function HorarioPage() {
   }
 
   // Parte A — edición inline.
+  //
+  // Sprint Zonas de horario — cambios.materiaId llega como '' (sentinel,
+  // ver el comentario de CambiosBloqueEditado) cuando tipo !== 'clase'. Se
+  // traduce a null explícito acá antes de mandarlo al servidor: el mismo
+  // PATCH que cambia de 'clase' a un tipo especial manda tipo+materiaId:null
+  // juntos, satisfaciendo el refine de actualizarBloqueHorarioSchema que
+  // exige ambos en el mismo body cuando `tipo` cambia (ver schemas.ts).
   async function guardarEdicionBloque(cambios: CambiosBloqueEditado) {
     if (!bloqueEditando) return
     setGuardandoEdicion(true)
 
-    let materiaId = cambios.materiaId
+    let materiaIdFinal: string | null = cambios.tipo === 'clase' ? cambios.materiaId : null
     let materiasActuales = materias
-    if (materiaId === MATERIA_NUEVA) {
+    if (cambios.tipo === 'clase' && materiaIdFinal === MATERIA_NUEVA) {
       const resMateria = await crearMateria(cambios.nuevaMateria)
       if (!resMateria.ok) {
         notify('No se pudo crear la materia', false)
         setGuardandoEdicion(false)
         return
       }
-      materiaId = resMateria.materia.id
+      materiaIdFinal = resMateria.materia.id
       materiasActuales = [...materiasActuales, resMateria.materia]
     }
 
     const resultado = await actualizarBloqueHorario(bloqueEditando.id, {
-      materiaId,
+      tipo: cambios.tipo,
+      materiaId: materiaIdFinal,
       horaInicio: cambios.horaInicio || null,
       horaFin: cambios.horaFin || null,
       aula: cambios.aula || null,
@@ -327,7 +364,7 @@ export default function HorarioPage() {
     notify('Bloque eliminado')
   }
 
-  const puedeAgregar = materiaId !== MATERIA_NUEVA || nuevaMateria.trim().length > 0
+  const puedeAgregar = tipoBloque !== 'clase' || materiaId !== MATERIA_NUEVA || nuevaMateria.trim().length > 0
 
   // `overflow-x-hidden` en el <main>: el fondo WebGL y el dock se pasan unos
   // pocos píxeles del viewport en móvil y provocan scroll horizontal de toda
@@ -419,15 +456,27 @@ export default function HorarioPage() {
         <div className="p-5">
           <p className="font-display text-sm font-semibold text-paper mb-3.5">Agregar un bloque</p>
 
+          {/* Sprint Zonas de horario — el toggle de tipo va primero: decide
+              si el picker de materia siquiera se muestra. Un bloque especial
+              (ingreso/salida/descanso) no tiene materia, así que cambiar a
+              uno de esos tipos oculta el picker en vez de dejarlo
+              deshabilitado — no hay nada que elegir, mostrarlo confundiría. */}
           <div className="flex flex-wrap items-center gap-2.5 mb-3">
-            <MateriaPicker
-              id="materia-horario"
-              materias={materias}
-              materiaId={materiaId}
-              nuevaMateria={nuevaMateria}
-              onMateriaIdChange={setMateriaId}
-              onNuevaMateriaChange={setNuevaMateria}
+            <SegmentedToggle
+              options={TIPO_BLOQUE_OPCIONES.map((o) => ({ value: o.value, label: o.label }))}
+              value={tipoBloque}
+              onChange={(v) => setTipoBloque(v as TipoBloqueHorario)}
             />
+            {tipoBloque === 'clase' && (
+              <MateriaPicker
+                id="materia-horario"
+                materias={materias}
+                materiaId={materiaId}
+                nuevaMateria={nuevaMateria}
+                onMateriaIdChange={setMateriaId}
+                onNuevaMateriaChange={setNuevaMateria}
+              />
+            )}
             <SegmentedToggle options={DIA_OPCIONES} value={diaSemana} onChange={setDiaSemana} />
           </div>
 

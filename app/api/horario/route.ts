@@ -21,6 +21,7 @@ export async function POST(request: Request) {
     .from('horario')
     .insert({
       user_id: auth.userId,
+      tipo: parsed.data.tipo,
       materia_id: parsed.data.materiaId,
       dia_semana: parsed.data.diaSemana,
       hora_inicio: parsed.data.horaInicio ?? null,

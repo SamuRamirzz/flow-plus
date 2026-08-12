@@ -48,12 +48,20 @@ export function detectarConflictosFusion(input: {
 
   for (const p of propuesto) {
     if (!franjaValida(p.horaInicio, p.horaFin)) continue
+    // Sprint Zonas de horario — un bloque especial (ingreso/salida/descanso)
+    // no tiene materia con qué comparar; su choque de identidad ya lo
+    // resuelve diffHorario() por (tipo+día), no este emparejamiento por
+    // franja+materia. Sin este guard, `p.materia === ''` compararía igual
+    // contra cualquier materia existente y nunca produciría "misma materia",
+    // generando conflictos falsos para cada franja coincidente.
+    if ((p.tipo ?? 'clase') !== 'clase') continue
 
     for (const g of guardado) {
+      if (g.tipo !== 'clase') continue // mismo motivo, del lado guardado
       if (g.diaSemana !== p.diaSemana) continue
       if (g.horaInicio !== p.horaInicio || g.horaFin !== p.horaFin) continue
 
-      const nombreExistente = nombrePorMateriaId.get(g.materiaId)
+      const nombreExistente = g.materiaId ? nombrePorMateriaId.get(g.materiaId) : undefined
       if (!nombreExistente) continue // materia desconocida: no se puede comparar, se ignora
 
       if (normalizarNombreMateria(nombreExistente) === normalizarNombreMateria(p.materia)) continue // misma materia → no es un conflicto, es la misma clase

@@ -4,11 +4,19 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import { X, Check, Trash2, Loader2 } from 'lucide-react'
 import type { Materia } from '@/lib/types'
-import type { BloqueHorario } from '@/lib/horario/tipos'
+import { TIPO_BLOQUE_OPCIONES, type BloqueHorario, type TipoBloqueHorario } from '@/lib/horario/tipos'
 import MateriaPicker, { MATERIA_NUEVA } from '@/components/ui/MateriaPicker'
 import PremiumTimePicker from '@/components/ui/PremiumTimePicker'
+import SegmentedToggle from '@/components/ui/SegmentedToggle'
 
 export type CambiosBloqueEditado = {
+  tipo: TipoBloqueHorario
+  // Sprint Zonas de horario — string vacío ('') es el sentinel de "sin
+  // materia" en este contrato con page.tsx (mismo criterio que
+  // BloquePropuesto.materia en diff.ts) porque MateriaPicker exige
+  // materiaId: string no-nullable — nunca puede emitir null. page.tsx
+  // (guardarEdicionBloque) es quien traduce '' → null antes de llamar a
+  // actualizarBloqueHorario.
   materiaId: string
   nuevaMateria: string
   horaInicio: string
@@ -87,7 +95,8 @@ function Formulario({
   onEliminar: () => void
   onCerrar: () => void
 }) {
-  const [materiaId, setMateriaId] = useState(bloque.materiaId)
+  const [tipo, setTipo] = useState<TipoBloqueHorario>(bloque.tipo)
+  const [materiaId, setMateriaId] = useState(bloque.materiaId ?? '')
   const [nuevaMateria, setNuevaMateria] = useState('')
   const [horaInicio, setHoraInicio] = useState(bloque.horaInicio ?? '')
   const [horaFin, setHoraFin] = useState(bloque.horaFin ?? '')
@@ -95,17 +104,17 @@ function Formulario({
   const [profesor, setProfesor] = useState(bloque.profesor ?? '')
   const [confirmandoBorrar, setConfirmandoBorrar] = useState(false)
 
-  const puedeGuardar = materiaId !== MATERIA_NUEVA || nuevaMateria.trim().length > 0
+  const puedeGuardar = tipo !== 'clase' || materiaId !== MATERIA_NUEVA || nuevaMateria.trim().length > 0
 
   function guardar() {
     if (!puedeGuardar || guardando) return
-    onGuardar({ materiaId, nuevaMateria: nuevaMateria.trim(), horaInicio, horaFin, aula: aula.trim(), profesor: profesor.trim() })
+    onGuardar({ tipo, materiaId: tipo === 'clase' ? materiaId : '', nuevaMateria: nuevaMateria.trim(), horaInicio, horaFin, aula: aula.trim(), profesor: profesor.trim() })
   }
 
   return (
     <>
       <div className="flex items-center justify-between mb-4">
-        <p className="font-display text-base font-semibold text-paper">Editar clase</p>
+        <p className="font-display text-base font-semibold text-paper">{tipo === 'clase' ? 'Editar clase' : 'Editar bloque'}</p>
         <button onClick={onCerrar} className="text-muted hover:text-paper transition" title="Cerrar">
           <X size={16} />
         </button>
@@ -113,15 +122,25 @@ function Formulario({
 
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <MateriaPicker
-            id="materia-editar-bloque"
-            materias={materias}
-            materiaId={materiaId}
-            nuevaMateria={nuevaMateria}
-            onMateriaIdChange={setMateriaId}
-            onNuevaMateriaChange={setNuevaMateria}
+          <SegmentedToggle
+            options={TIPO_BLOQUE_OPCIONES.map((o) => ({ value: o.value, label: o.label }))}
+            value={tipo}
+            onChange={(v) => setTipo(v as TipoBloqueHorario)}
           />
         </div>
+
+        {tipo === 'clase' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <MateriaPicker
+              id="materia-editar-bloque"
+              materias={materias}
+              materiaId={materiaId}
+              nuevaMateria={nuevaMateria}
+              onMateriaIdChange={setMateriaId}
+              onNuevaMateriaChange={setNuevaMateria}
+            />
+          </div>
+        )}
 
         <div className="flex items-center gap-2.5">
           <PremiumTimePicker value={horaInicio} onChange={setHoraInicio} label="Hora de inicio" />

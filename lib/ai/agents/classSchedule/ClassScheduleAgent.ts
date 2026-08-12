@@ -31,6 +31,7 @@ function construirInstruccionSistema(): string {
     'Primero decide tipoRespuesta: "bloques" si puedes leer el horario; "no_es_horario" si la imagen claramente no es un horario de clases; "ilegible" si sí parece un horario pero no puedes leerlo con confianza (borroso, cortado, muy oscuro, en un ángulo imposible).',
     'Si NO es "bloques", escribe en "mensaje" una frase breve y amable en español explicando qué pasa, y deja "bloques" vacío.',
     'Si es "bloques": extrae UNA entrada por cada celda de clase. Si una materia aparece el lunes y el miércoles, son DOS entradas distintas, cada una con su día. Nunca repitas la misma entrada dos veces.',
+    'Cada entrada lleva un campo "tipo": "clase" para una materia normal (el caso más común, casi siempre es este). Usa "ingreso"/"salida"/"descanso" SOLO si la imagen marca EXPLÍCITAMENTE una fila o celda con ese nombre literal (ej. "Ingreso 7:00", "Descanso", "Salida 15:00") — nunca los inventes para un hueco vacío entre dos clases, eso no es lo mismo que un bloque especial declarado. Un bloque especial siempre lleva materia como cadena vacía.',
     'diaSemana usa ISO-8601: 1=lunes, 2=martes, 3=miércoles, 4=jueves, 5=viernes, 6=sábado, 7=domingo. NUNCA uses 0 para domingo.',
     'Las horas van en formato HH:MM de 24 horas ("14:00", no "2 pm"). Si la imagen no indica una hora, deja el campo como cadena vacía en vez de inventarla.',
     'No inventes materias, aulas ni horas que no estén en la imagen. Si una celda está borrosa y dudas, extrae lo que sí puedas leer y baja el confidence de esa fila.',

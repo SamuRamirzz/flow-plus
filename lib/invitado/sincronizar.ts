@@ -65,9 +65,18 @@ export async function sincronizarInvitado(datos: DatosInvitado, acciones: Accion
 
   let bloquesCreados = 0
   for (const b of datos.horario) {
-    const materiaId = mapaMaterias.get(b.materiaId)
-    if (!materiaId) continue // defensivo: no debería pasar, cada bloque local referencia una materia local
-    const r = await acciones.crearBloqueHorario({ materiaId, diaSemana: b.diaSemana, horaInicio: b.horaInicio, horaFin: b.horaFin })
+    // Sprint Zonas de horario — un bloque especial (tipo !== 'clase') no
+    // tiene materia local que remapear: se sincroniza directo con
+    // materiaId: null, mismo criterio que el resto del proyecto.
+    if (b.tipo !== 'clase') {
+      const r = await acciones.crearBloqueHorario({ tipo: b.tipo, materiaId: null, diaSemana: b.diaSemana, horaInicio: b.horaInicio, horaFin: b.horaFin })
+      if (r.ok) bloquesCreados++
+      continue
+    }
+
+    const materiaId = b.materiaId ? mapaMaterias.get(b.materiaId) : undefined
+    if (!materiaId) continue // defensivo: no debería pasar, cada bloque local de clase referencia una materia local
+    const r = await acciones.crearBloqueHorario({ tipo: 'clase', materiaId, diaSemana: b.diaSemana, horaInicio: b.horaInicio, horaFin: b.horaFin })
     if (r.ok) bloquesCreados++
   }
 

@@ -192,4 +192,62 @@ describe('ClassScheduleOutputParser', () => {
   it('no es JSON → ParseResult de error, sin lanzar', () => {
     expect(parser.parse('{{{').ok).toBe(false)
   })
+
+  // Sprint Zonas de horario
+  it('un bloque especial sin materia se conserva (a diferencia de "clase" sin materia, que se descarta)', () => {
+    const r = parser.parse(
+      JSON.stringify({
+        tipoRespuesta: 'bloques',
+        mensaje: '',
+        bloques: [{ tipo: 'ingreso', materia: '', diaSemana: 1, horaInicio: '07:00', horaFin: '', aula: '', confidence: 0.9 }],
+      })
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.data.bloques).toHaveLength(1)
+    expect(r.data.bloques[0]).toMatchObject({ tipo: 'ingreso', materia: '', horaInicio: '07:00' })
+  })
+
+  it('tipo ausente (foto vieja, sin el campo) cae a "clase" — compatible con respuestas de antes de este sprint', () => {
+    const r = parser.parse(
+      JSON.stringify({
+        tipoRespuesta: 'bloques',
+        mensaje: '',
+        bloques: [{ materia: 'Cálculo', diaSemana: 1, horaInicio: '07:00', horaFin: '09:00', aula: '', confidence: 1 }],
+      })
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.data.bloques[0].tipo).toBe('clase')
+  })
+
+  it('tipo con un valor fuera del enum cae a "clase" en vez de propagar basura', () => {
+    const r = parser.parse(
+      JSON.stringify({
+        tipoRespuesta: 'bloques',
+        mensaje: '',
+        bloques: [{ tipo: 'almuerzo', materia: 'X', diaSemana: 1, horaInicio: '', horaFin: '', aula: '', confidence: 1 }],
+      })
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.data.bloques[0].tipo).toBe('clase')
+  })
+
+  it('tipo "clase" sin materia sigue descartándose (el sentinel vacío es solo válido para bloques especiales)', () => {
+    const r = parser.parse(
+      JSON.stringify({
+        tipoRespuesta: 'bloques',
+        mensaje: '',
+        bloques: [
+          { tipo: 'clase', materia: '', diaSemana: 1, horaInicio: '07:00', horaFin: '', aula: '', confidence: 1 },
+          { tipo: 'descanso', materia: '', diaSemana: 1, horaInicio: '10:00', horaFin: '10:30', aula: '', confidence: 1 },
+        ],
+      })
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.data.bloques).toHaveLength(1)
+    expect(r.data.bloques[0].tipo).toBe('descanso')
+  })
 })

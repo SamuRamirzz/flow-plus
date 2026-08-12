@@ -28,6 +28,7 @@ export async function PATCH(request: Request, { params }: Contexto) {
   // y actualizarBloqueHorarioSchema sigan describiendo la forma que ve el
   // cliente, no la de la tabla.
   const cambios: Record<string, unknown> = {}
+  if (parsed.data.tipo !== undefined) cambios.tipo = parsed.data.tipo
   if (parsed.data.activo !== undefined) cambios.activo = parsed.data.activo
   if (parsed.data.materiaId !== undefined) cambios.materia_id = parsed.data.materiaId
   if (parsed.data.horaInicio !== undefined) cambios.hora_inicio = parsed.data.horaInicio

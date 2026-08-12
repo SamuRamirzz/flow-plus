@@ -1,9 +1,21 @@
-import type { BloqueHorario, DiaSemana } from './tipos'
+import type { BloqueHorario, DiaSemana, TipoBloqueHorario } from './tipos'
 
 // Un bloque propuesto por la foto todavía NO tiene id (no existe en la base)
 // y trae la materia por NOMBRE, no por id — resolver ese nombre a una
 // materia real (o crearla) es trabajo del guardado, no del diff.
+//
+// Sprint Zonas de horario — `tipo` es opcional y por defecto 'clase' (mismo
+// default que el resto del proyecto): las fotos existentes que el agente ya
+// leía antes de este sprint no lo mandan, y siguen comportándose
+// exactamente igual. `materia` queda como `string` no-nullable a propósito
+// — ClassScheduleAgent sigue mandando un string vacío `''` para bloques
+// especiales (ver schema.ts), nunca `null`/`undefined`, porque su output es
+// JSON estructurado con propiedades requeridas (mismo patrón "sentinel" ya
+// usado en HOMEWORK_OUTPUT_SCHEMA/examen — ver lib/server/examen.ts). El
+// diff y el guardado son quienes interpretan ese string vacío como "sin
+// materia" cuando tipo !== 'clase'.
 export type BloquePropuesto = {
+  tipo?: TipoBloqueHorario
   materia: string
   diaSemana: DiaSemana
   horaInicio: string | null
@@ -39,9 +51,20 @@ export function normalizarNombreMateria(nombre: string): string {
   return nombre.normalize('NFD').replace(DIACRITICOS, '').toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
-/** Clave de identidad de un bloque: misma materia el mismo día. */
+/** Clave de identidad de un bloque de clase: misma materia el mismo día. */
 function clave(materiaNormalizada: string, diaSemana: DiaSemana): string {
-  return `${materiaNormalizada}|${diaSemana}`
+  return `clase|${materiaNormalizada}|${diaSemana}`
+}
+
+// Clave de identidad de un bloque ESPECIAL: mismo tipo el mismo día — no hay
+// nombre de materia con qué comparar, así que "ingreso del lunes" es la
+// identidad completa (no puede haber dos ingresos guardados el mismo día;
+// si el usuario quisiera eso, sería un caso raro que este diff no necesita
+// resolver hoy). Prefijo `clase|`/`especial|` distinto a propósito: sin él,
+// una materia real que se llamara literalmente "ingreso" podría chocar de
+// clave con un bloque especial de tipo ingreso el mismo día.
+function claveEspecial(tipo: TipoBloqueHorario, diaSemana: DiaSemana): string {
+  return `especial|${tipo}|${diaSemana}`
 }
 
 // PURO: ni I/O ni fechas. Compara el horario ya guardado contra lo que la
@@ -53,7 +76,10 @@ function clave(materiaNormalizada: string, diaSemana: DiaSemana): string {
 // guardado a las 07:00 y la foto dice 08:00, eso es un MOVIDO (la clase se
 // corrió), no un eliminado + un agregado. Esa distinción es justamente lo
 // que hace útil la lista de cambios: el usuario ve "se movió" en vez de dos
-// filas sin relación aparente.
+// filas sin relación aparente. Los bloques especiales (tipo !== 'clase') se
+// emparejan igual mismo criterio pero por tipo+día en vez de materia+día
+// (ver claveEspecial arriba) — nunca pasan por nombrePorMateriaId porque no
+// tienen materia que traducir.
 export function diffHorario(input: {
   guardado: BloqueHorario[]
   propuesto: BloquePropuesto[]
@@ -63,7 +89,11 @@ export function diffHorario(input: {
 
   const guardadoPorClave = new Map<string, BloqueHorario>()
   for (const b of guardado) {
-    const nombre = nombrePorMateriaId.get(b.materiaId)
+    if (b.tipo !== 'clase') {
+      guardadoPorClave.set(claveEspecial(b.tipo, b.diaSemana), b)
+      continue
+    }
+    const nombre = b.materiaId ? nombrePorMateriaId.get(b.materiaId) : undefined
     if (!nombre) continue // materia desconocida: se ignora, no se puede comparar
     guardadoPorClave.set(clave(normalizarNombreMateria(nombre), b.diaSemana), b)
   }
@@ -74,7 +104,8 @@ export function diffHorario(input: {
   const clavesVistas = new Set<string>()
 
   for (const p of propuesto) {
-    const k = clave(normalizarNombreMateria(p.materia), p.diaSemana)
+    const tipo = p.tipo ?? 'clase'
+    const k = tipo === 'clase' ? clave(normalizarNombreMateria(p.materia), p.diaSemana) : claveEspecial(tipo, p.diaSemana)
     clavesVistas.add(k)
     const existente = guardadoPorClave.get(k)
 
@@ -124,6 +155,10 @@ export function detectarMateriasNuevas(agregados: BloquePropuesto[], materiasExi
   const vistas = new Set<string>()
 
   for (const b of agregados) {
+    // Sprint Zonas de horario — un bloque especial trae `materia: ''`
+    // (sentinel del schema, ver el comentario de BloquePropuesto): jamás es
+    // "una materia nueva llamada vacío".
+    if ((b.tipo ?? 'clase') !== 'clase') continue
     const clave = normalizarNombreMateria(b.materia)
     if (existentesNormalizadas.has(clave) || vistas.has(clave)) continue
     vistas.add(clave)

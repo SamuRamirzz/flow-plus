@@ -15,7 +15,7 @@ const MATERIAS: Materia[] = [
 ]
 
 function bloque(overrides: Partial<BloqueHorario> = {}): BloqueHorario {
-  return { id: 'b1', materiaId: MATEMATICAS, diaSemana: 1, horaInicio: '10:00', horaFin: '11:00', aula: null, profesor: null, ...overrides }
+  return { id: 'b1', tipo: 'clase', materiaId: MATEMATICAS, diaSemana: 1, horaInicio: '10:00', horaFin: '11:00', aula: null, profesor: null, ...overrides }
 }
 
 function tarea(overrides: Partial<Tarea> = {}): Tarea {
@@ -75,6 +75,30 @@ describe('proximaClaseHoy', () => {
   it('materia no encontrada cae a un nombre genérico, no rompe', () => {
     const r = proximaClaseHoy([bloque({ diaSemana: 1, horaInicio: '14:00', materiaId: 'no-existe' })], MATERIAS, LUNES, '10:00')
     expect(r?.materiaNombre).toBe('Materia')
+  })
+
+  // Sprint Zonas de horario
+  it('un bloque especial (ingreso) antes de la clase real de hoy NO se muestra como "próxima clase"', () => {
+    const r = proximaClaseHoy(
+      [
+        bloque({ id: 'ingreso', tipo: 'ingreso', materiaId: null, diaSemana: 1, horaInicio: '10:30' }),
+        bloque({ id: 'clase-real', tipo: 'clase', diaSemana: 1, horaInicio: '14:00' }),
+      ],
+      MATERIAS,
+      LUNES,
+      '10:00'
+    )
+    expect(r?.bloque.id).toBe('clase-real')
+  })
+
+  it('solo bloques especiales hoy (sin ninguna clase real) → null, no un falso "Ingreso" como próxima clase', () => {
+    const r = proximaClaseHoy(
+      [bloque({ tipo: 'ingreso', materiaId: null, diaSemana: 1, horaInicio: '14:00' })],
+      MATERIAS,
+      LUNES,
+      '10:00'
+    )
+    expect(r).toBeNull()
   })
 })
 

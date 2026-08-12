@@ -160,9 +160,31 @@ const horaSchema = z
   .nullable()
   .optional()
 
+// Sprint Zonas de horario — espejo en zod del check `horario_tipo_check` de
+// la migración. "clase" sigue siendo el default: todo llamador viejo que no
+// manda `tipo` sigue creando un bloque de clase exactamente como antes.
+export const tipoBloqueHorarioSchema = z.enum(['clase', 'ingreso', 'salida', 'descanso'], {
+  error: 'El tipo debe ser clase, ingreso, salida o descanso',
+})
+
+// Espejo en zod del check `horario_tipo_materia_chk`: un bloque de tipo
+// "clase" exige materiaId, y los tres tipos especiales NUNCA lo llevan —
+// biconstricción completa en las dos direcciones (mismo criterio que
+// crearTareaSchema con materiaId/nuevaMateria, ver la investigación de este
+// sprint). Se usa tanto en creación como en actualización — en
+// actualización, `tipo`/`materiaId` ausentes (undefined) se tratan como "no
+// cambian" y no se validan cruzados, igual que ya hace actualizarTareaSchema
+// con su propio refine de materiaId/nuevaMateria.
+const bloqueHorarioValido = (v: { tipo?: string; materiaId?: string | null }) =>
+  v.tipo === 'clase' ? !!v.materiaId : !v.materiaId
+const MENSAJE_BLOQUE_SIN_MATERIA = 'Un bloque de clase necesita una materia, y un bloque especial (ingreso/salida/descanso) no puede tener una'
+
 export const crearBloqueHorarioSchema = z
   .object({
-    materiaId: z.string().uuid('materiaId no es un id válido'),
+    tipo: tipoBloqueHorarioSchema.optional().default('clase'),
+    // nullable (no solo optional): un bloque especial manda materiaId:null
+    // explícito, mismo criterio que crearTareaSchema.materiaId.
+    materiaId: z.string().uuid('materiaId no es un id válido').nullable(),
     diaSemana: z.number().int('diaSemana debe ser un entero').min(1, 'diaSemana debe estar entre 1 y 7').max(7, 'diaSemana debe estar entre 1 y 7'),
     horaInicio: horaSchema,
     horaFin: horaSchema,
@@ -171,16 +193,32 @@ export const crearBloqueHorarioSchema = z
     message: 'La hora de fin debe ser posterior a la de inicio',
     path: ['horaFin'],
   })
+  .refine(bloqueHorarioValido, { message: MENSAJE_BLOQUE_SIN_MATERIA, path: ['materiaId'] })
 
 // Sub-sprint 8.2 — se extiende más allá de activo/horaInicio/horaFin
 // (usado hasta ahora solo por el diff de importación) para que la edición
 // inline de un bloque pueda cambiar materia/aula/profesor. `aula`/`profesor`
 // aceptan `null` explícito (para poder vaciarlos desde el modal, no solo
 // dejarlos como estaban) además de `undefined` (no tocar el campo).
+//
+// Sprint Zonas de horario — `tipo`/`materiaId` ganan la misma validación
+// cruzada que crearBloqueHorarioSchema, pero solo se aplica cuando AMBOS
+// vienen en el mismo PATCH: cambiar solo `tipo` de 'clase' a 'ingreso' sin
+// tocar materiaId en el mismo request dejaría una fila con tipo='ingreso' y
+// materia_id todavía apuntando a una materia real — inconsistente mismo si
+// cada campo por separado pasa su propio refine. Por eso el PATCH que
+// cambia de tipo 'clase'↔especial debe mandar materiaId en el mismo body
+// (null o un uuid, según corresponda) — el cliente (EditarBloqueModal) ya
+// hace esto porque el selector de tipo y el de materia comparten el mismo
+// submit.
+const bloqueHorarioValidoEnActualizacion = (v: { tipo?: string; materiaId?: string | null }) =>
+  v.tipo === undefined || bloqueHorarioValido(v)
+
 export const actualizarBloqueHorarioSchema = z
   .object({
+    tipo: tipoBloqueHorarioSchema.optional(),
     activo: z.boolean().optional(),
-    materiaId: z.string().uuid('materiaId no es un id válido').optional(),
+    materiaId: z.string().uuid('materiaId no es un id válido').nullable().optional(),
     horaInicio: horaSchema,
     horaFin: horaSchema,
     aula: z.string().trim().max(100, 'El aula es demasiado larga').nullable().optional(),
@@ -190,8 +228,10 @@ export const actualizarBloqueHorarioSchema = z
     message: 'La hora de fin debe ser posterior a la de inicio',
     path: ['horaFin'],
   })
+  .refine(bloqueHorarioValidoEnActualizacion, { message: MENSAJE_BLOQUE_SIN_MATERIA, path: ['materiaId'] })
   .refine(
     (v) =>
+      v.tipo !== undefined ||
       v.activo !== undefined ||
       v.materiaId !== undefined ||
       v.horaInicio !== undefined ||

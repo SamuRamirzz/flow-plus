@@ -1,5 +1,5 @@
 import type { Materia, Tarea } from '@/lib/types'
-import type { BloqueHorario, DiaSemana } from '@/lib/horario/tipos'
+import type { BloqueHorario, DiaSemana, TipoBloqueHorario } from '@/lib/horario/tipos'
 import { normalizarNombreMateria } from '@/lib/horario/diff'
 import { asignarIconoDeterministico, ICONO_POR_DEFECTO } from '@/lib/materias/asignarIcono'
 import type { DatosInvitado } from './tipos'
@@ -131,7 +131,9 @@ export function eliminarTareaPura(datos: DatosInvitado, id: string): { datos: Da
 }
 
 export type NuevoBloqueInvitadoInput = {
-  materiaId: string
+  // Sprint Zonas de horario — mismo default 'clase' que crearBloqueHorarioSchema.
+  tipo?: TipoBloqueHorario
+  materiaId: string | null
   diaSemana: DiaSemana
   horaInicio: string | null
   horaFin: string | null
@@ -140,6 +142,7 @@ export type NuevoBloqueInvitadoInput = {
 export function agregarBloquePura(datos: DatosInvitado, input: NuevoBloqueInvitadoInput): { datos: DatosInvitado; bloque: BloqueHorario } {
   const bloque: BloqueHorario = {
     id: crypto.randomUUID(),
+    tipo: input.tipo ?? 'clase',
     materiaId: input.materiaId,
     diaSemana: input.diaSemana,
     horaInicio: input.horaInicio,
@@ -151,7 +154,8 @@ export function agregarBloquePura(datos: DatosInvitado, input: NuevoBloqueInvita
 }
 
 export type CambiosBloqueInvitado = {
-  materiaId?: string
+  tipo?: TipoBloqueHorario
+  materiaId?: string | null
   horaInicio?: string | null
   horaFin?: string | null
   aula?: string | null

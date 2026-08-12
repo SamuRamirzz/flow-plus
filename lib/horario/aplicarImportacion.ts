@@ -19,14 +19,35 @@ function agregarMateriaSiNueva(materiasActuales: Materia[], materia: Materia): M
 
 // Resuelve la materia (existente por nombre, o nueva) y crea el bloque —
 // mismo camino que ya usaba confirmarPropuesta() para diff.agregados.
+//
+// Sprint Zonas de horario — un bloque especial (ingreso/salida/descanso)
+// NUNCA llama a crearMateria(): b.materia es el sentinel `''` (ver el
+// comentario de BloquePropuesto en diff.ts), y crear una materia real
+// llamada "" sería el mismo tipo de contaminación del picker de materias
+// que este sprint entero busca eliminar.
 async function crearDesdePropuesto(
   b: BloquePropuesto,
   materiasActuales: Materia[]
 ): Promise<{ ok: true; materiasActuales: Materia[] } | { ok: false; error: string }> {
+  const tipo = b.tipo ?? 'clase'
+
+  if (tipo !== 'clase') {
+    const resBloque = await crearBloqueHorario({
+      tipo,
+      materiaId: null,
+      diaSemana: b.diaSemana,
+      horaInicio: b.horaInicio,
+      horaFin: b.horaFin,
+    })
+    if (!resBloque.ok) return { ok: false, error: resBloque.error }
+    return { ok: true, materiasActuales }
+  }
+
   const resMateria = await crearMateria(b.materia)
   if (!resMateria.ok) return { ok: false, error: `No se pudo crear la materia "${b.materia}"` }
 
   const resBloque = await crearBloqueHorario({
+    tipo: 'clase',
     materiaId: resMateria.materia.id,
     diaSemana: b.diaSemana,
     horaInicio: b.horaInicio,
