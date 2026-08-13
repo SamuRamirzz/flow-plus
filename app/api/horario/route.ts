@@ -1,7 +1,7 @@
 import { requerirUsuario } from '@/lib/server/usuario'
-import { supabaseServer } from '@/lib/server/supabaseServer'
 import { crearBloqueHorarioSchema } from '@/lib/api/schemas'
 import { ok, errorJson, errorDeValidacion } from '@/lib/server/respuestas'
+import { crearBloque } from '@/lib/server/horario'
 
 export async function POST(request: Request) {
   const auth = await requerirUsuario()
@@ -17,19 +17,14 @@ export async function POST(request: Request) {
   const parsed = crearBloqueHorarioSchema.safeParse(body)
   if (!parsed.success) return errorDeValidacion(parsed.error)
 
-  const { data, error } = await supabaseServer
-    .from('horario')
-    .insert({
-      user_id: auth.userId,
-      tipo: parsed.data.tipo,
-      materia_id: parsed.data.materiaId,
-      dia_semana: parsed.data.diaSemana,
-      hora_inicio: parsed.data.horaInicio ?? null,
-      hora_fin: parsed.data.horaFin ?? null,
-    })
-    .select()
-    .single()
+  const resultado = await crearBloque(auth.userId, {
+    tipo: parsed.data.tipo,
+    materiaId: parsed.data.materiaId,
+    diaSemana: parsed.data.diaSemana,
+    horaInicio: parsed.data.horaInicio ?? null,
+    horaFin: parsed.data.horaFin ?? null,
+  })
 
-  if (error) return errorJson(error.message, 500)
-  return ok(data, 201)
+  if (!resultado.ok) return errorJson(resultado.error, 500)
+  return ok(resultado.bloque, 201)
 }

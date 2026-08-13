@@ -126,11 +126,19 @@ export type ArchivoContexto = { id: string; nombre: string }
 // legible (materia si es tipo 'clase', o "Ingreso"/"Salida"/"Descanso" si
 // es especial) — el modelo nunca necesita saber de `tipo`/`materiaId` por
 // separado, evita que tenga que cruzar dos tablas en su cabeza.
+//
+// Bugs pendientes / Parte 2 — `horaFin` se agregó para que
+// `procesarBloquesParaCrear`/`procesarOperacionesBloque` (route.ts) puedan
+// llamar a `hayColision()` con el rango completo, no solo `horaInicio`
+// (sin `horaFin` no hay forma de saber si dos bloques se solapan de
+// verdad). El modelo (prompt) sigue sin verlo — `listarBloquesParaPrompt`
+// no lo usa — es de uso exclusivo del servidor.
 export type BloqueHorarioContexto = {
   id: string
   nombre: string
   diaSemana: number
   horaInicio: string | null
+  horaFin: string | null
 }
 
 // Sprint Sistema de Notas Unificado (Parte E) — resumen mínimo de una nota
@@ -157,6 +165,64 @@ export type OperacionNotaExistenteResuelta =
   | { id: string; accion: 'editar' | 'borrar'; estado: 'ambiguo'; contenidoNuevo?: string; candidatos: NotaContextoIA[] }
   | { id: string; accion: 'editar' | 'borrar'; estado: 'sin_coincidencias' }
 
+// Bugs pendientes / Parte 2 — resumen mínimo de un bloque de horario
+// existente para poder deduplicarlo/mostrarlo al resolver `modificar_bloque`/
+// `borrar_bloque`. Distinto de BloqueHorarioContexto (que solo trae `nombre`
+// ya resuelto a texto): acá se necesitan los campos crudos porque
+// `procesarOperacionesBloque` (route.ts) va a llamar a `hayColision()` con
+// ellos, y `nombre` (string) no sirve para eso.
+export type BloqueHorarioCompleto = {
+  id: string
+  tipo: TipoBloqueHorarioIA
+  materiaId: string | null
+  materiaNombre: string | null
+  diaSemana: number
+  horaInicio: string | null
+  horaFin: string | null
+}
+
+export type TipoBloqueHorarioIA = 'clase' | 'ingreso' | 'salida' | 'descanso'
+
+// Bugs pendientes / Parte 2 — resultado de resolver una intención
+// `crear_bloque_horario`. DELIBERADAMENTE separado de `OperacionTarea`,
+// mismo criterio que `OperacionCrearNotaResuelta`: nunca se re-exporta desde
+// index.ts, solo lo consumen resolver.ts/TaskManagementAgent.ts y
+// app/api/ai/tareas/route.ts. No hay estado "ambiguo" — crear siempre
+// produce un bloque nuevo, no resuelve contra una lista existente (a
+// diferencia de crear_nota, que si ancla a algo ya existente). El único
+// fallo posible es una materia sin nombre reconocible cuando tipo='clase',
+// que se resuelve igual que resolverOCrearMateria ya resuelve para tareas
+// (crea la materia si hace falta) — así que en la práctica esto casi
+// siempre es 'resuelto'; el estado 'invalido' cubre el caso borde real:
+// tipo='clase' sin ningún nombre de materia utilizable.
+export type OperacionCrearBloqueResuelta =
+  | {
+      id: string
+      estado: 'resuelto'
+      tipo: TipoBloqueHorarioIA
+      materiaNombre: string | null
+      diaSemana: number
+      horaInicio: string | null
+      horaFin: string | null
+    }
+  | { id: string; estado: 'invalido'; motivo: string }
+
+// Bugs pendientes / Parte 2 — resultado de resolver `modificar_bloque_horario`/
+// `borrar_bloque_horario` contra `bloquesExistentes` (mismo criterio
+// defensivo que OperacionNotaExistenteResuelta: >1 candidato válido siempre
+// es "ambiguo", nunca se aplica sobre el bloque equivocado).
+export type CambiosBloqueIA = {
+  materiaNombre?: string | null
+  diaSemana?: number
+  horaInicio?: string | null
+  horaFin?: string | null
+}
+
+export type OperacionBloqueExistenteResuelta =
+  | { id: string; accion: 'modificar' | 'borrar'; estado: 'resuelto'; bloqueId: string; cambios?: CambiosBloqueIA }
+  | { id: string; accion: 'modificar' | 'borrar'; estado: 'ambiguo'; cambios?: CambiosBloqueIA; candidatos: BloqueHorarioContexto[] }
+  | { id: string; accion: 'modificar' | 'borrar'; estado: 'sin_coincidencias' }
+
 export type TaskManagementAgentOutput = {
   originalText: string
   tipoRespuesta: TipoRespuestaGestion
@@ -177,4 +243,8 @@ export type TaskManagementAgentOutput = {
   // notasExistentes, exclusivo del servidor (el Route Handler lo consume y
   // lo borra antes de responder al cliente).
   operacionesNotaExistente?: OperacionNotaExistenteResuelta[]
+  // Bugs pendientes / Parte 2 — mismo criterio exacto que notasParaCrear:
+  // exclusivo del servidor, nunca llega al cliente.
+  bloquesParaCrear?: OperacionCrearBloqueResuelta[]
+  operacionesBloqueExistente?: OperacionBloqueExistenteResuelta[]
 }

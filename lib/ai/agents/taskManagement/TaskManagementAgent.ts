@@ -4,7 +4,7 @@ import { aiConfig } from '@/lib/ai/config'
 import { hoyEnZona, ZONA_HORARIA_POR_DEFECTO } from '@/lib/ai/context/fecha'
 import { GEMINI_PROVIDER_ID, normalizarAdjuntos, type ConversationTurnInput, type StructuredProviderMetadata } from '@/lib/ai/providers/gemini'
 import { TASK_MANAGEMENT_OUTPUT_SCHEMA, TaskManagementOutputParser } from './schema'
-import { resolverOperaciones, resolverNotas, resolverOperacionesNotaExistente } from './resolver'
+import { resolverOperaciones, resolverNotas, resolverOperacionesNotaExistente, resolverBloques, resolverOperacionesBloqueExistente } from './resolver'
 import {
   TASK_MANAGEMENT_AGENT_ID,
   TASK_MANAGEMENT_AGENT_TRIGGER_EVENT,
@@ -308,7 +308,10 @@ function construirInstruccionSistema(
     '- tipo "crear_nota": cuando el usuario pide agregar una nota, anotación o comentario a una tarea O a un bloque de horario existente (ej. "agrega una nota a mi tarea de Cálculo diciendo que faltó el punto 3", "pon una nota en mi clase de Inglés de los lunes", "agrega una nota a mi bloque de ingreso"). Primero decide objetivoTipo: "tarea" si se refiere a una tarea de la primera lista, "bloque_horario" si se refiere a una clase/ingreso/salida/descanso de la lista de bloques. Luego indiceObjetivo (o indicesCandidatos si más de uno podría ser) identifica el objetivo dentro de ESA lista — nunca mezcles índices de una lista con objetivoTipo de la otra. contenidoNota lleva el contenido de la nota, redactado en español a partir de lo que pidió el usuario. NUNCA crees una tarea nueva solo para poder agregarle una nota — si el objetivo no está en ninguna lista, usa "sin_coincidencias" en su lugar.',
     '- tipo "editar_nota": cuando el usuario pide cambiar el contenido de una nota que YA EXISTE (ej. "cambia la nota de mi tarea de Historia a que el examen es oral", "actualiza la nota de mi clase de Inglés"). objetivoTipo SIEMPRE "nota". indiceObjetivo (o indicesCandidatos) identifica la nota dentro de la lista de notas existentes. contenidoNota lleva el contenido NUEVO completo (no un parche, reemplaza todo el contenido anterior).',
     '- tipo "borrar_nota": cuando el usuario pide quitar/eliminar una nota que YA EXISTE (ej. "borra la nota de mi tarea de Historia", "elimina la nota de mi bloque de descanso"). objetivoTipo SIEMPRE "nota". indiceObjetivo (o indicesCandidatos) identifica la nota. contenidoNota va vacío ("") — borrar no necesita contenido.',
-    'Nunca inventes un índice que no esté en la lista correspondiente. Ante la duda entre "ambiguo" y adivinar, usa "ambiguo".',
+    '- tipo "crear_bloque": cuando el usuario pide agregar un bloque NUEVO a su horario (ej. "agrega Física los jueves a las 10", "agrega un descanso de 15 minutos a las 10:30 los lunes", "agrega mi ingreso a las 6:30"). Primero decide tipoBloque: "clase" si menciona una materia real, o "ingreso"/"salida"/"descanso" si el usuario usa esas palabras — reconócelas SIEMPRE como el tipo especial, NUNCA como si fueran el nombre de una materia nueva (si dice "agrega descanso a las 10", tipoBloque es "descanso", NO crees una materia llamada "Descanso"). Si tipoBloque es "clase", materia lleva el nombre de la materia (obligatorio). diaSemanaBloque es el día (1=lunes...7=domingo) — si el usuario menciona varios días para el mismo bloque, genera una operación "crear_bloque" por cada día. horaInicioBloque/horaFinBloque son la hora — si el usuario da una duración en vez de una hora de fin ("un descanso de 15 minutos a las 10:30"), calcula horaFinBloque sumando la duración. Si de verdad no hay forma de determinar la materia (para una clase), el día, o la hora, mejor usa tipoRespuesta "conversacional" para pedir esa información en vez de inventarla.',
+    '- tipo "modificar_bloque": cuando el usuario pide cambiar un bloque de horario que YA EXISTE (hora, día o materia — ej. "mueve mi clase de Inglés a las 9", "cambia mi ingreso a las 6:30", "el descanso de la tarde ahora es a las 4"). indiceObjetivo (o indicesCandidatos si más de uno podría ser, ej. "Matemáticas" aparece lunes y miércoles) identifica el bloque dentro de la lista de BLOQUES DE HORARIO. Pon en materia/diaSemanaBloque/horaInicioBloque/horaFinBloque SOLO los campos que cambian (el resto en su centinela "" o -1) — nunca cambies tipoBloque acá salvo que el usuario lo pida explícitamente.',
+    '- tipo "borrar_bloque": cuando el usuario pide quitar un bloque de horario que YA EXISTE (ej. "quita mi clase de Historia de los viernes", "borra mi descanso de la tarde"). indiceObjetivo (o indicesCandidatos) identifica el bloque igual que "modificar_bloque". materia/diaSemanaBloque/horaInicioBloque/horaFinBloque van todos vacíos — borrar no necesita cambios.',
+    'Nunca inventes un índice que no esté en la lista correspondiente. Ante la duda entre "ambiguo" y adivinar, usa "ambiguo". Lo mismo aplica a "modificar_bloque"/"borrar_bloque": si más de un bloque podría ser el referido, usa indicesCandidatos en vez de adivinar uno.',
     'Responde únicamente con el JSON solicitado.',
   ].join('\n')
 }
@@ -415,6 +418,8 @@ class TaskManagementAgentImpl implements AIAgent<TaskManagementAgentOutput> {
     const operaciones = resolverOperaciones(parsed.data.operaciones, tareasExistentes)
     const notasParaCrear = resolverNotas(parsed.data.operaciones, tareasExistentes, bloquesExistentes, archivosExistentes)
     const operacionesNotaExistente = resolverOperacionesNotaExistente(parsed.data.operaciones, notasExistentesContexto)
+    const bloquesParaCrear = resolverBloques(parsed.data.operaciones)
+    const operacionesBloqueExistente = resolverOperacionesBloqueExistente(parsed.data.operaciones, bloquesExistentes)
     const output: TaskManagementAgentOutput = {
       originalText: text,
       tipoRespuesta: parsed.data.tipoRespuesta,
@@ -422,6 +427,8 @@ class TaskManagementAgentImpl implements AIAgent<TaskManagementAgentOutput> {
       operaciones,
       notasParaCrear,
       operacionesNotaExistente,
+      bloquesParaCrear,
+      operacionesBloqueExistente,
     }
 
     const confidencesCrear = operaciones.filter((op) => op.tipo === 'crear').map((op) => op.confidence)

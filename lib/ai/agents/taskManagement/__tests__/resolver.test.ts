@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { resolverOperaciones, resolverNotas, resolverOperacionesNotaExistente } from '../resolver'
-import type { OperacionRaw, OperacionCrearNotaRaw, OperacionNotaExistenteRaw } from '../schema'
+import { resolverOperaciones, resolverNotas, resolverOperacionesNotaExistente, resolverBloques, resolverOperacionesBloqueExistente } from '../resolver'
+import type { OperacionRaw, OperacionCrearNotaRaw, OperacionNotaExistenteRaw, OperacionCrearBloqueRaw, OperacionBloqueExistenteRaw } from '../schema'
 import type { TareaContexto, BloqueHorarioContexto, ArchivoContexto, NotaContextoIA } from '../types'
 
 const MATE: TareaContexto = { id: 'tarea-mate', titulo: 'Examen de matemáticas', materia: 'Matemáticas', fecha: '2026-07-30', completada: false }
@@ -9,8 +9,8 @@ const BIO: TareaContexto = { id: 'tarea-bio', titulo: 'Laboratorio de biología'
 
 const tareasExistentes = [MATE, MATE2, BIO] // índices 0, 1, 2
 
-const INGLES_LUNES: BloqueHorarioContexto = { id: 'bloque-ingles', nombre: 'Inglés', diaSemana: 1, horaInicio: '08:00' }
-const INGRESO: BloqueHorarioContexto = { id: 'bloque-ingreso', nombre: 'Ingreso', diaSemana: 1, horaInicio: '07:00' }
+const INGLES_LUNES: BloqueHorarioContexto = { id: 'bloque-ingles', nombre: 'Inglés', diaSemana: 1, horaInicio: '08:00', horaFin: '09:00' }
+const INGRESO: BloqueHorarioContexto = { id: 'bloque-ingreso', nombre: 'Ingreso', diaSemana: 1, horaInicio: '07:00', horaFin: '07:30' }
 const bloquesExistentes = [INGLES_LUNES, INGRESO] // índices 0, 1
 
 const APUNTE_FISICA: ArchivoContexto = { id: 'archivo-fisica', nombre: 'Apunte de Física' }
@@ -359,6 +359,140 @@ describe('resolverOperacionesNotaExistente (Sprint Sistema de Notas Unificado)',
     )
     expect(op1.id).toBeTruthy()
     expect(op2.id).toBeTruthy()
+    expect(op1.id).not.toBe(op2.id)
+  })
+})
+
+// Bugs pendientes / Parte 2 — resolverBloques (crear_bloque).
+function bloqueRaw(overrides: Partial<OperacionCrearBloqueRaw> = {}): OperacionRaw {
+  return {
+    tipo: 'crear_bloque',
+    tipoBloque: 'clase',
+    materia: 'Física',
+    diaSemana: 4,
+    horaInicio: '10:00',
+    horaFin: '11:00',
+    ...overrides,
+  }
+}
+
+describe('resolverBloques — crear_bloque', () => {
+  it('clase con materia/día/hora completos → resuelto', () => {
+    const [op] = resolverBloques([bloqueRaw()])
+    expect(op.estado).toBe('resuelto')
+    if (op.estado === 'resuelto') {
+      expect(op.tipo).toBe('clase')
+      expect(op.materiaNombre).toBe('Física')
+      expect(op.diaSemana).toBe(4)
+      expect(op.horaInicio).toBe('10:00')
+      expect(op.horaFin).toBe('11:00')
+    }
+  })
+
+  it('bloque especial (ingreso/salida/descanso) → resuelto sin materia, aunque el modelo mande una', () => {
+    const [op] = resolverBloques([bloqueRaw({ tipoBloque: 'descanso', materia: null })])
+    expect(op.estado).toBe('resuelto')
+    if (op.estado === 'resuelto') {
+      expect(op.tipo).toBe('descanso')
+      expect(op.materiaNombre).toBeNull()
+    }
+  })
+
+  it('clase sin materia → inválido, nunca crea un bloque de clase sin materia', () => {
+    const [op] = resolverBloques([bloqueRaw({ materia: null })])
+    expect(op.estado).toBe('invalido')
+  })
+
+  it('sin hora de inicio o fin → inválido', () => {
+    const [op1] = resolverBloques([bloqueRaw({ horaInicio: null })])
+    expect(op1.estado).toBe('invalido')
+    const [op2] = resolverBloques([bloqueRaw({ horaFin: null })])
+    expect(op2.estado).toBe('invalido')
+  })
+
+  it('sin día de la semana → inválido', () => {
+    const [op] = resolverBloques([bloqueRaw({ diaSemana: null })])
+    expect(op.estado).toBe('invalido')
+  })
+
+  it('varias operaciones crear_bloque en el mismo turno (mismo bloque, distintos días) se resuelven todas', () => {
+    const ops = resolverBloques([bloqueRaw({ diaSemana: 1 }), bloqueRaw({ diaSemana: 3 })])
+    expect(ops).toHaveLength(2)
+    expect(ops.every((o) => o.estado === 'resuelto')).toBe(true)
+  })
+
+  it('ignora por completo las operaciones que no son crear_bloque', () => {
+    const ops = resolverBloques([crearRaw(), refRaw()])
+    expect(ops).toHaveLength(0)
+  })
+
+  it('cada operación resuelta tiene un id propio', () => {
+    const [op1, op2] = resolverBloques([bloqueRaw({ diaSemana: 1 }), bloqueRaw({ diaSemana: 3 })])
+    expect(op1.id).toBeTruthy()
+    expect(op1.id).not.toBe(op2.id)
+  })
+})
+
+// Bugs pendientes / Parte 2 — resolverOperacionesBloqueExistente
+// (modificar_bloque/borrar_bloque), mismo criterio defensivo que
+// resolverOperacionesNotaExistente.
+function bloqueExistenteRaw(overrides: Partial<OperacionBloqueExistenteRaw> = {}): OperacionRaw {
+  return {
+    tipo: 'modificar_bloque',
+    descripcion: 'mi clase de Inglés',
+    indiceObjetivo: null,
+    indicesCandidatos: [],
+    cambios: {},
+    ...overrides,
+  }
+}
+
+describe('resolverOperacionesBloqueExistente', () => {
+  it('modificar_bloque resuelto con índice único → resuelto, con los cambios propuestos', () => {
+    const [op] = resolverOperacionesBloqueExistente(
+      [bloqueExistenteRaw({ indiceObjetivo: 0, cambios: { horaInicio: '09:00', horaFin: '10:00' } })],
+      bloquesExistentes
+    )
+    expect(op.estado).toBe('resuelto')
+    expect(op.accion).toBe('modificar')
+    if (op.estado === 'resuelto') {
+      expect(op.bloqueId).toBe(INGLES_LUNES.id)
+      expect(op.cambios).toEqual({ horaInicio: '09:00', horaFin: '10:00' })
+    }
+  })
+
+  it('borrar_bloque resuelto, sin cambios (undefined, nunca un objeto vacío que confunda "no cambia nada" con "cambia todo a undefined")', () => {
+    const [op] = resolverOperacionesBloqueExistente([bloqueExistenteRaw({ tipo: 'borrar_bloque', indiceObjetivo: 1 })], bloquesExistentes)
+    expect(op.estado).toBe('resuelto')
+    expect(op.accion).toBe('borrar')
+    if (op.estado === 'resuelto') {
+      expect(op.bloqueId).toBe(INGRESO.id)
+      expect(op.cambios).toBeUndefined()
+    }
+  })
+
+  it('>1 candidato válido → ambiguo, con la lista real de BLOQUES candidatos', () => {
+    const [op] = resolverOperacionesBloqueExistente([bloqueExistenteRaw({ indicesCandidatos: [0, 1] })], bloquesExistentes)
+    expect(op.estado).toBe('ambiguo')
+    if (op.estado === 'ambiguo') expect(op.candidatos).toEqual([INGLES_LUNES, INGRESO])
+  })
+
+  it('índice alucinado (fuera de rango) → sin_coincidencias, nunca modifica/borra el bloque equivocado', () => {
+    const [op] = resolverOperacionesBloqueExistente([bloqueExistenteRaw({ indiceObjetivo: 99 })], bloquesExistentes)
+    expect(op.estado).toBe('sin_coincidencias')
+  })
+
+  it('ignora por completo las operaciones que no son modificar_bloque/borrar_bloque', () => {
+    const ops = resolverOperacionesBloqueExistente([crearRaw(), bloqueRaw()], bloquesExistentes)
+    expect(ops).toHaveLength(0)
+  })
+
+  it('cada operación resuelta tiene un id propio', () => {
+    const [op1, op2] = resolverOperacionesBloqueExistente(
+      [bloqueExistenteRaw({ indiceObjetivo: 0 }), bloqueExistenteRaw({ tipo: 'borrar_bloque', indiceObjetivo: 1 })],
+      bloquesExistentes
+    )
+    expect(op1.id).toBeTruthy()
     expect(op1.id).not.toBe(op2.id)
   })
 })

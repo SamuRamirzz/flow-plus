@@ -2,12 +2,23 @@ import { aiOrchestrator } from '@/lib/ai'
 import { bootstrapAI } from '@/lib/ai/bootstrap'
 import { createId } from '@/lib/ai/utils'
 import { TASK_MANAGEMENT_AGENT_ID, type TareaContexto, type TaskManagementAgentOutput } from '@/lib/ai/agents/taskManagement'
-import type { OperacionCrearNotaResuelta, OperacionNotaExistenteResuelta, BloqueHorarioContexto, ArchivoContexto, NotaContextoIA } from '@/lib/ai/agents/taskManagement/types'
+import type {
+  OperacionCrearNotaResuelta,
+  OperacionNotaExistenteResuelta,
+  OperacionCrearBloqueResuelta,
+  OperacionBloqueExistenteResuelta,
+  BloqueHorarioContexto,
+  ArchivoContexto,
+  NotaContextoIA,
+} from '@/lib/ai/agents/taskManagement/types'
 import type { AdjuntoIA } from '@/lib/ai/providers/gemini'
 import { requerirUsuario } from '@/lib/server/usuario'
 import { supabaseServer } from '@/lib/server/supabaseServer'
 import { esRutaDelUsuario } from '@/lib/server/rutaStorage'
 import { crearNota } from '@/lib/server/notas'
+import { crearBloque, actualizarBloque, borrarBloque, hayColision } from '@/lib/server/horario'
+import { resolverOCrearMateria } from '@/lib/server/materias'
+import { minutosDesdeHHMM, hhmmDesdeMinutos } from '@/lib/horario/horaMinutos'
 
 // Sprint 7.1 Parte 2 — sucesor de /api/ai/homework para la pantalla /ai:
 // TaskManagementAgent es un superconjunto de HomeworkAgent (también puede
@@ -79,7 +90,12 @@ const NOMBRE_TIPO_BLOQUE_ESPECIAL: Record<string, string> = { ingreso: 'Ingreso'
 // `tipo`/`materiaId` por su cuenta.
 async function cargarBloquesParaContexto(userId: string): Promise<BloqueHorarioContexto[]> {
   const [{ data: bloques }, { data: materias }] = await Promise.all([
-    supabaseServer.from('horario').select('id, tipo, materia_id, dia_semana, hora_inicio').eq('user_id', userId).eq('activo', true).order('dia_semana'),
+    supabaseServer
+      .from('horario')
+      .select('id, tipo, materia_id, dia_semana, hora_inicio, hora_fin')
+      .eq('user_id', userId)
+      .eq('activo', true)
+      .order('dia_semana'),
     supabaseServer.from('materias').select('id, nombre').eq('user_id', userId),
   ])
 
@@ -96,6 +112,7 @@ async function cargarBloquesParaContexto(userId: string): Promise<BloqueHorarioC
       nombre,
       diaSemana: b.dia_semana as number,
       horaInicio: (b.hora_inicio as string | null)?.slice(0, 5) ?? null,
+      horaFin: (b.hora_fin as string | null)?.slice(0, 5) ?? null,
     }
   })
 }
@@ -264,6 +281,174 @@ function mensajeParaNotas(resumen: {
   return partes.length > 0 ? partes.join(' ') : 'No pude procesar la nota.'
 }
 
+// Bugs pendientes / Parte 2 — ejecuta `crear_bloque` ya resuelto contra
+// bloquesExistentes (colisión) y materias reales (resolverOCrearMateria).
+// Mismo criterio defensivo que procesarNotasParaCrear: un fallo individual
+// se registra y se sigue con el resto, nunca tumba la respuesta del turno.
+// Una colisión detectada NO bloquea la creación — se avisa en el mensaje
+// final, mismo criterio que ya sigue `esFechaPlausible`/`detectarColisiones`
+// de CalendarAgent para tareas (POST /api/tareas): nunca bloquea, solo
+// avisa, porque el usuario puede querer el solape a propósito (ej. una
+// clase optativa superpuesta que solo asistirá parcialmente).
+async function procesarBloquesParaCrear(
+  userId: string,
+  bloques: OperacionCrearBloqueResuelta[],
+  bloquesExistentes: BloqueHorarioContexto[]
+): Promise<{ creados: number; conColision: number; invalidos: number }> {
+  let creados = 0
+  let conColision = 0
+  let invalidos = 0
+
+  // Bloques creados en ESTE mismo turno cuentan para la colisión de los
+  // siguientes — sin esto, "agrega Física lunes y miércoles a las 10" (dos
+  // operaciones crear_bloque del mismo turno) nunca se verían entre sí.
+  const existentesConNuevos = bloquesExistentes.map((b) => ({ id: b.id, diaSemana: b.diaSemana, horaInicio: b.horaInicio, horaFin: b.horaFin }))
+
+  for (const item of bloques) {
+    if (item.estado === 'invalido') {
+      invalidos++
+      continue
+    }
+
+    let materiaId: string | null = null
+    if (item.tipo === 'clase') {
+      const resolucion = await resolverOCrearMateria({ userId, materiaId: null, nuevaMateria: item.materiaNombre })
+      if (!resolucion.ok) {
+        console.error('[api/ai/tareas] no se pudo resolver la materia del bloque propuesto por la IA:', resolucion.error)
+        invalidos++
+        continue
+      }
+      materiaId = resolucion.materiaId
+    }
+
+    const choca = hayColision(existentesConNuevos, { diaSemana: item.diaSemana, horaInicio: item.horaInicio, horaFin: item.horaFin })
+    if (choca) conColision++
+
+    const resultado = await crearBloque(userId, {
+      tipo: item.tipo,
+      materiaId,
+      diaSemana: item.diaSemana,
+      horaInicio: item.horaInicio,
+      horaFin: item.horaFin,
+    })
+    if (resultado.ok) {
+      creados++
+      existentesConNuevos.push({ id: resultado.bloque.id, diaSemana: item.diaSemana, horaInicio: item.horaInicio, horaFin: item.horaFin })
+    } else {
+      console.error('[api/ai/tareas] no se pudo crear el bloque de horario propuesto por la IA:', resultado.error)
+      invalidos++
+    }
+  }
+
+  return { creados, conColision, invalidos }
+}
+
+// Bugs pendientes / Parte 2 — ejecuta `modificar_bloque`/`borrar_bloque` ya
+// resueltas contra bloquesExistentes. Reusa `actualizarBloque`/
+// `borrarBloque` (lib/server/horario.ts), el MISMO punto de escritura que ya
+// usan los endpoints `PATCH`/`DELETE /api/horario/[id]` — nunca un fetch
+// HTTP interno, mismo criterio que procesarOperacionesNotaExistente.
+async function procesarOperacionesBloque(
+  userId: string,
+  operaciones: OperacionBloqueExistenteResuelta[],
+  bloquesExistentes: BloqueHorarioContexto[]
+): Promise<{ modificados: number; borrados: number; conColision: number; ambiguas: number; sinCoincidencias: number }> {
+  let modificados = 0
+  let borrados = 0
+  let conColision = 0
+  let ambiguas = 0
+  let sinCoincidencias = 0
+
+  for (const item of operaciones) {
+    if (item.estado === 'ambiguo') {
+      ambiguas++
+      continue
+    }
+    if (item.estado === 'sin_coincidencias') {
+      sinCoincidencias++
+      continue
+    }
+
+    if (item.accion === 'borrar') {
+      const resultado = await borrarBloque(userId, item.bloqueId)
+      if (resultado.ok) borrados++
+      else console.error('[api/ai/tareas] no se pudo borrar el bloque propuesto por la IA:', resultado.error)
+      continue
+    }
+
+    // modificar
+    const cambios = item.cambios
+    let materiaId: string | undefined
+    if (cambios?.materiaNombre) {
+      const resolucion = await resolverOCrearMateria({ userId, materiaId: null, nuevaMateria: cambios.materiaNombre })
+      if (resolucion.ok) materiaId = resolucion.materiaId
+      else console.error('[api/ai/tareas] no se pudo resolver la materia del cambio de bloque propuesto por la IA:', resolucion.error)
+    }
+
+    // Bug real encontrado en la verificación contra Gemini: "mueve mi clase
+    // de Guitarra a las 17:00" solo devuelve horaInicio nuevo — mandarlo
+    // solo (sin horaFin) deja la hora de fin VIEJA en la fila, que puede
+    // quedar antes del nuevo inicio y violar `horario_horas_chk` en
+    // Postgres (reproducido: "new row for relation horario violates check
+    // constraint horario_horas_chk"). Cuando cambia solo uno de los dos
+    // extremos, se recalcula el otro preservando la DURACIÓN original del
+    // bloque — "muévela a las 9" debe seguir durando lo mismo que antes,
+    // no quedar con una hora de fin que ya no tiene sentido.
+    let horaInicioFinal = cambios?.horaInicio
+    let horaFinFinal = cambios?.horaFin
+    if ((cambios?.horaInicio && !cambios?.horaFin) || (cambios?.horaFin && !cambios?.horaInicio)) {
+      const actual = bloquesExistentes.find((b) => b.id === item.bloqueId)
+      if (actual?.horaInicio && actual?.horaFin) {
+        const duracionMin = minutosDesdeHHMM(actual.horaFin) - minutosDesdeHHMM(actual.horaInicio)
+        if (duracionMin > 0) {
+          if (cambios.horaInicio && !cambios.horaFin) horaFinFinal = hhmmDesdeMinutos(minutosDesdeHHMM(cambios.horaInicio) + duracionMin)
+          if (cambios.horaFin && !cambios.horaInicio) horaInicioFinal = hhmmDesdeMinutos(minutosDesdeHHMM(cambios.horaFin) - duracionMin)
+        }
+      }
+    }
+
+    if (horaInicioFinal || horaFinFinal || cambios?.diaSemana !== undefined) {
+      const actual = bloquesExistentes.find((b) => b.id === item.bloqueId)
+      const diaSemana = cambios?.diaSemana ?? actual?.diaSemana
+      const horaInicio = horaInicioFinal ?? actual?.horaInicio ?? null
+      const horaFin = horaFinFinal ?? actual?.horaFin ?? null
+      if (diaSemana !== undefined && hayColision(bloquesExistentes, { diaSemana, horaInicio, horaFin }, item.bloqueId)) {
+        conColision++
+      }
+    }
+
+    const resultado = await actualizarBloque(userId, item.bloqueId, {
+      materiaId,
+      horaInicio: horaInicioFinal,
+      horaFin: horaFinFinal,
+    })
+    if (resultado.ok) modificados++
+    else console.error('[api/ai/tareas] no se pudo modificar el bloque propuesto por la IA:', resultado.error)
+  }
+
+  return { modificados, borrados, conColision, ambiguas, sinCoincidencias }
+}
+
+function mensajeParaBloques(resumen: {
+  creados: number
+  modificados: number
+  borrados: number
+  conColision: number
+  invalidos: number
+  ambiguas: number
+  sinCoincidencias: number
+}): string {
+  const partes: string[] = []
+  if (resumen.creados > 0) partes.push(resumen.creados === 1 ? 'Agregué el bloque a tu horario.' : `Agregué ${resumen.creados} bloques a tu horario.`)
+  if (resumen.modificados > 0) partes.push(resumen.modificados === 1 ? 'Actualicé el bloque.' : `Actualicé ${resumen.modificados} bloques.`)
+  if (resumen.borrados > 0) partes.push(resumen.borrados === 1 ? 'Borré el bloque.' : `Borré ${resumen.borrados} bloques.`)
+  if (resumen.conColision > 0) partes.push('Ojo: choca con otro bloque que ya tenías en esa franja.')
+  if (resumen.invalidos > 0) partes.push('Me faltó información para completar alguno (materia, día u hora).')
+  if (resumen.ambiguas > 0) partes.push('Hay más de un bloque que podría ser — decime cuál.')
+  if (resumen.sinCoincidencias > 0) partes.push('No encontré ese bloque en tu horario.')
+  return partes.length > 0 ? partes.join(' ') : 'No pude procesar el bloque de horario.'
+}
+
 export async function POST(request: Request) {
   const auth = await requerirUsuario()
   if (!auth.ok) return auth.respuesta
@@ -358,37 +543,67 @@ export async function POST(request: Request) {
   })
 
   // Sprint Archivos / Fase 4.2, extendido en el Sprint Sistema de Notas
-  // Unificado — crear_nota/editar_nota/borrar_nota se ejecutan ACÁ, del
-  // lado del servidor, en el mismo request: ninguna llega al cliente como
-  // una operación más. `result.output.operaciones` (lo que el overlay YA
-  // consume en producción) queda exactamente como antes de este sprint.
+  // Unificado y en Bugs pendientes / Parte 2 — crear_nota/editar_nota/
+  // borrar_nota y crear_bloque/modificar_bloque/borrar_bloque se ejecutan
+  // ACÁ, del lado del servidor, en el mismo request: ninguna llega al
+  // cliente como una operación más. `result.output.operaciones` (lo que el
+  // overlay YA consume en producción) queda exactamente como antes de estos
+  // sprints.
   if (result.status === 'success' && result.output) {
     const notasParaCrear = result.output.notasParaCrear ?? []
     const operacionesNotaExistente = result.output.operacionesNotaExistente ?? []
+    const bloquesParaCrear = result.output.bloquesParaCrear ?? []
+    const operacionesBloqueExistente = result.output.operacionesBloqueExistente ?? []
     const huboAlgunaOperacionDeNota = notasParaCrear.length > 0 || operacionesNotaExistente.length > 0
+    const huboAlgunaOperacionDeBloque = bloquesParaCrear.length > 0 || operacionesBloqueExistente.length > 0
 
-    if (huboAlgunaOperacionDeNota) {
+    if (huboAlgunaOperacionDeNota || huboAlgunaOperacionDeBloque) {
       const resumenCrear = notasParaCrear.length > 0 ? await procesarNotasParaCrear(userId, notasParaCrear) : { creadas: 0, ambiguas: 0, sinCoincidencias: 0 }
       const resumenExistente =
         operacionesNotaExistente.length > 0
           ? await procesarOperacionesNotaExistente(userId, operacionesNotaExistente)
           : { editadas: 0, borradas: 0, ambiguas: 0, sinCoincidencias: 0 }
+      const resumenBloquesCrear =
+        bloquesParaCrear.length > 0 ? await procesarBloquesParaCrear(userId, bloquesParaCrear, bloquesExistentes) : { creados: 0, conColision: 0, invalidos: 0 }
+      const resumenBloquesExistentes =
+        operacionesBloqueExistente.length > 0
+          ? await procesarOperacionesBloque(userId, operacionesBloqueExistente, bloquesExistentes)
+          : { modificados: 0, borrados: 0, conColision: 0, ambiguas: 0, sinCoincidencias: 0 }
 
-      // Si TODO lo que había en este turno era una operación de nota,
-      // `operaciones` queda vacío — sin esto, el fallback de "0 operaciones
-      // = no entendí nada" del cliente (components/ai/conversacion.ts)
-      // mostraría un mensaje con estilo de error sobre algo que en realidad
-      // tuvo éxito.
+      // Si TODO lo que había en este turno era una operación de nota o de
+      // bloque de horario, `operaciones` queda vacío — sin esto, el
+      // fallback de "0 operaciones = no entendí nada" del cliente
+      // (components/ai/conversacion.ts) mostraría un mensaje con estilo de
+      // error sobre algo que en realidad tuvo éxito.
       if (result.output.operaciones.length === 0) {
         result.output.tipoRespuesta = 'conversacional'
         if (!result.output.mensaje) {
-          result.output.mensaje = mensajeParaNotas({
-            creadas: resumenCrear.creadas,
-            ambiguas: resumenCrear.ambiguas + resumenExistente.ambiguas,
-            sinCoincidencias: resumenCrear.sinCoincidencias + resumenExistente.sinCoincidencias,
-            editadas: resumenExistente.editadas,
-            borradas: resumenExistente.borradas,
-          })
+          const partes: string[] = []
+          if (huboAlgunaOperacionDeNota) {
+            partes.push(
+              mensajeParaNotas({
+                creadas: resumenCrear.creadas,
+                ambiguas: resumenCrear.ambiguas + resumenExistente.ambiguas,
+                sinCoincidencias: resumenCrear.sinCoincidencias + resumenExistente.sinCoincidencias,
+                editadas: resumenExistente.editadas,
+                borradas: resumenExistente.borradas,
+              })
+            )
+          }
+          if (huboAlgunaOperacionDeBloque) {
+            partes.push(
+              mensajeParaBloques({
+                creados: resumenBloquesCrear.creados,
+                modificados: resumenBloquesExistentes.modificados,
+                borrados: resumenBloquesExistentes.borrados,
+                conColision: resumenBloquesCrear.conColision + resumenBloquesExistentes.conColision,
+                invalidos: resumenBloquesCrear.invalidos,
+                ambiguas: resumenBloquesExistentes.ambiguas,
+                sinCoincidencias: resumenBloquesExistentes.sinCoincidencias,
+              })
+            )
+          }
+          result.output.mensaje = partes.join(' ')
         }
       }
     }
@@ -396,6 +611,8 @@ export async function POST(request: Request) {
     // Uso exclusivo del servidor — nunca viaja en la respuesta al cliente.
     delete result.output.notasParaCrear
     delete result.output.operacionesNotaExistente
+    delete result.output.bloquesParaCrear
+    delete result.output.operacionesBloqueExistente
   }
 
   return Response.json(result)

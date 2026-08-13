@@ -235,3 +235,175 @@ describe('TaskManagementOutputParser — editar_nota / borrar_nota', () => {
     }
   })
 })
+
+// Bugs pendientes / Parte 2 — crear_bloque/modificar_bloque/borrar_bloque:
+// tercera extensión del schema, la de mayor riesgo (14→18 propiedades
+// requeridas, ver el comentario en schema.ts). Estos tests cubren solo FORMA
+// (el parser no conoce bloques reales, eso es resolver.ts).
+describe('TaskManagementOutputParser — crear_bloque', () => {
+  it('clase bien formada parsea correcto', () => {
+    const resultado = parser.parse(
+      raw([{ tipo: 'crear_bloque', tipoBloque: 'clase', materia: 'Física', diaSemanaBloque: 4, horaInicioBloque: '10:00', horaFinBloque: '11:00' }])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      expect(op.tipo).toBe('crear_bloque')
+      if (op.tipo === 'crear_bloque') {
+        expect(op.tipoBloque).toBe('clase')
+        expect(op.materia).toBe('Física')
+        expect(op.diaSemana).toBe(4)
+        expect(op.horaInicio).toBe('10:00')
+        expect(op.horaFin).toBe('11:00')
+      }
+    }
+  })
+
+  it('bloque especial (ingreso/salida/descanso) sin materia parsea correcto', () => {
+    const resultado = parser.parse(
+      raw([{ tipo: 'crear_bloque', tipoBloque: 'descanso', materia: '', diaSemanaBloque: 1, horaInicioBloque: '10:30', horaFinBloque: '10:45' }])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      if (op.tipo === 'crear_bloque') {
+        expect(op.tipoBloque).toBe('descanso')
+        expect(op.materia).toBeNull()
+      }
+    }
+  })
+
+  it('bloque especial CON materia mandada por el modelo la descarta — nunca se guarda una materia en un bloque especial', () => {
+    const resultado = parser.parse(
+      raw([{ tipo: 'crear_bloque', tipoBloque: 'ingreso', materia: 'Ingreso', diaSemanaBloque: 1, horaInicioBloque: '06:30', horaFinBloque: '07:00' }])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      if (op.tipo === 'crear_bloque') expect(op.materia).toBeNull()
+    }
+  })
+
+  it('clase sin materia se descarta por completo — nunca crea un bloque de clase sin materia', () => {
+    const resultado = parser.parse(
+      raw([{ tipo: 'crear_bloque', tipoBloque: 'clase', materia: '', diaSemanaBloque: 4, horaInicioBloque: '10:00', horaFinBloque: '11:00' }])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) expect(resultado.data.operaciones).toHaveLength(0)
+  })
+
+  it('tipoBloque ausente/inválido cae a "clase" (mismo default que crearBloqueHorarioSchema del servidor)', () => {
+    const resultado = parser.parse(
+      raw([{ tipo: 'crear_bloque', tipoBloque: 'algo-inventado', materia: 'Química', diaSemanaBloque: 2, horaInicioBloque: '08:00', horaFinBloque: '09:00' }])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      if (op.tipo === 'crear_bloque') expect(op.tipoBloque).toBe('clase')
+    }
+  })
+
+  it('hora con formato inválido cae a null, nunca se cuela un valor mal formado', () => {
+    const resultado = parser.parse(
+      raw([{ tipo: 'crear_bloque', tipoBloque: 'clase', materia: 'Física', diaSemanaBloque: 4, horaInicioBloque: '10h00', horaFinBloque: '11:00' }])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      if (op.tipo === 'crear_bloque') expect(op.horaInicio).toBeNull()
+    }
+  })
+
+  it('diaSemanaBloque fuera de 1-7 cae a null', () => {
+    const resultado = parser.parse(
+      raw([{ tipo: 'crear_bloque', tipoBloque: 'clase', materia: 'Física', diaSemanaBloque: 9, horaInicioBloque: '10:00', horaFinBloque: '11:00' }])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      if (op.tipo === 'crear_bloque') expect(op.diaSemana).toBeNull()
+    }
+  })
+})
+
+describe('TaskManagementOutputParser — modificar_bloque / borrar_bloque', () => {
+  it('modificar_bloque bien formado parsea correcto, con cambios y índice', () => {
+    const resultado = parser.parse(
+      raw([
+        {
+          tipo: 'modificar_bloque',
+          descripcion: 'mi clase de Inglés',
+          indiceObjetivo: 0,
+          indicesCandidatos: [],
+          horaInicioBloque: '09:00',
+          horaFinBloque: '10:00',
+        },
+      ])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      expect(op.tipo).toBe('modificar_bloque')
+      if (op.tipo === 'modificar_bloque') {
+        expect(op.cambios).toEqual({ horaInicio: '09:00', horaFin: '10:00' })
+        expect(op.indiceObjetivo).toBe(0)
+      }
+    }
+  })
+
+  it('borrar_bloque bien formado parsea correcto, cambios vacío (borrar no necesita cambios)', () => {
+    const resultado = parser.parse(raw([{ tipo: 'borrar_bloque', descripcion: 'mi descanso de la tarde', indiceObjetivo: 0, indicesCandidatos: [] }]))
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      expect(op.tipo).toBe('borrar_bloque')
+      if (op.tipo === 'borrar_bloque') expect(op.cambios).toEqual({})
+    }
+  })
+
+  it('modificar_bloque solo con cambio de materia — el resto de cambios queda ausente, no en blanco', () => {
+    const resultado = parser.parse(
+      raw([{ tipo: 'modificar_bloque', descripcion: 'x', indiceObjetivo: 0, indicesCandidatos: [], materia: 'Química' }])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      if (op.tipo === 'modificar_bloque') expect(op.cambios).toEqual({ materia: 'Química' })
+    }
+  })
+
+  it('indicesCandidatos con valores mezclados se limpia sin lanzar, igual que el resto del parser', () => {
+    const resultado = parser.parse(
+      raw([{ tipo: 'modificar_bloque', descripcion: 'x', indiceObjetivo: null, indicesCandidatos: [0, -1, 'dos', 1] }])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      if (op.tipo === 'modificar_bloque') expect(op.indicesCandidatos).toEqual([0, 1])
+    }
+  })
+
+  it('descripcion ausente cae al respaldo genérico', () => {
+    const resultado = parser.parse(raw([{ tipo: 'borrar_bloque', indiceObjetivo: 0, indicesCandidatos: [] }]))
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      const [op] = resultado.data.operaciones
+      if (op.tipo === 'borrar_bloque') expect(op.descripcion).toBe('un bloque de horario')
+    }
+  })
+
+  it('mezclado con crear_bloque/crear_nota/tarea en el mismo array — todos sobreviven, en orden', () => {
+    const resultado = parser.parse(
+      raw([
+        { tipo: 'crear_bloque', tipoBloque: 'clase', materia: 'Física', diaSemanaBloque: 4, horaInicioBloque: '10:00', horaFinBloque: '11:00' },
+        { tipo: 'modificar_bloque', descripcion: 'x', indiceObjetivo: 0, indicesCandidatos: [], horaInicioBloque: '09:00' },
+        { tipo: 'borrar_bloque', descripcion: 'y', indiceObjetivo: 1, indicesCandidatos: [] },
+        { tipo: 'crear', titulo: 'Ensayo', materia: '', fecha: '', prioridad: 'media', tipoTarea: 'ensayo', confidence: 0.9 },
+      ])
+    )
+    expect(resultado.ok).toBe(true)
+    if (resultado.ok) {
+      expect(resultado.data.operaciones.map((o) => o.tipo)).toEqual(['crear_bloque', 'modificar_bloque', 'borrar_bloque', 'crear'])
+    }
+  })
+})

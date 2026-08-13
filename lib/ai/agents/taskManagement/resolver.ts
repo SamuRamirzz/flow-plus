@@ -1,9 +1,12 @@
 import { createId } from '@/lib/ai/utils'
-import type { OperacionRaw, OperacionCrearNotaRaw, OperacionNotaExistenteRaw } from './schema'
+import type { OperacionRaw, OperacionCrearNotaRaw, OperacionNotaExistenteRaw, OperacionCrearBloqueRaw, OperacionBloqueExistenteRaw } from './schema'
 import type {
   OperacionTarea,
   OperacionCrearNotaResuelta,
   OperacionNotaExistenteResuelta,
+  OperacionCrearBloqueResuelta,
+  OperacionBloqueExistenteResuelta,
+  CambiosBloqueIA,
   TareaContexto,
   BloqueHorarioContexto,
   ArchivoContexto,
@@ -24,13 +27,20 @@ import type {
 // `resolverNotas()`, más abajo, reusando `resolverCandidatos()` — la MISMA
 // lógica de cruce de índices, sin duplicarla. Sprint Sistema de Notas
 // Unificado — `editar_nota`/`borrar_nota` se excluyen por el mismo motivo,
-// resueltas aparte con `resolverOperacionesNotaExistente()`.
+// resueltas aparte con `resolverOperacionesNotaExistente()`. Bugs pendientes
+// / Parte 2 — `crear_bloque`/`modificar_bloque`/`borrar_bloque` se excluyen
+// por el mismo motivo, resueltas aparte con `resolverBloques()`/
+// `resolverOperacionesBloqueExistente()`.
+type OperacionSoloTarea = Exclude<
+  OperacionRaw,
+  OperacionCrearNotaRaw | OperacionNotaExistenteRaw | OperacionCrearBloqueRaw | OperacionBloqueExistenteRaw
+>
+
+const TIPOS_NO_TAREA = ['crear_nota', 'editar_nota', 'borrar_nota', 'crear_bloque', 'modificar_bloque', 'borrar_bloque']
+
 export function resolverOperaciones(operacionesRaw: OperacionRaw[], tareasExistentes: TareaContexto[]): OperacionTarea[] {
   return operacionesRaw
-    .filter(
-      (raw): raw is Exclude<OperacionRaw, OperacionCrearNotaRaw | OperacionNotaExistenteRaw> =>
-        raw.tipo !== 'crear_nota' && raw.tipo !== 'editar_nota' && raw.tipo !== 'borrar_nota'
-    )
+    .filter((raw): raw is OperacionSoloTarea => !TIPOS_NO_TAREA.includes(raw.tipo))
     .map((raw) => resolverUna(raw, tareasExistentes))
 }
 
@@ -67,7 +77,7 @@ function resolverCandidatos<T>(indiceObjetivo: number | null, indicesCandidatos:
   return { estado: 'resuelto', item: lista[indiceResuelto] }
 }
 
-function resolverUna(raw: Exclude<OperacionRaw, OperacionCrearNotaRaw | OperacionNotaExistenteRaw>, tareasExistentes: TareaContexto[]): OperacionTarea {
+function resolverUna(raw: OperacionSoloTarea, tareasExistentes: TareaContexto[]): OperacionTarea {
   if (raw.tipo === 'crear') {
     return {
       id: createId('op'),
@@ -179,5 +189,71 @@ export function resolverOperacionesNotaExistente(
       }
       if (resolucion.estado === 'sin_coincidencias') return { id, accion, estado: 'sin_coincidencias' }
       return { id, accion, estado: 'resuelto', notaId: resolucion.item.id, contenidoNuevo: raw.contenidoNuevo ?? undefined }
+    })
+}
+
+// Bugs pendientes / Parte 2 — resuelve `crear_bloque`. A diferencia de
+// crear_nota, nunca resuelve contra una lista existente (un bloque nuevo no
+// "es" ninguno de los que ya hay) — el único estado que no es 'resuelto' es
+// 'invalido', para el caso borde real: tipo 'clase' sin materia (ya
+// descartado en el parser, pero se revalida acá por si el parser cambia) o
+// sin ninguna hora (un bloque sin horaInicio/horaFin no es representable en
+// el modelo de datos de `horario`, que exige comparar horaInicio<horaFin
+// cuando ambas existen — mejor "no se creó, decile al usuario" que guardar
+// un bloque sin hora que después no aparece en ningún lado de la grilla).
+export function resolverBloques(operacionesRaw: OperacionRaw[]): OperacionCrearBloqueResuelta[] {
+  return operacionesRaw
+    .filter((raw): raw is OperacionCrearBloqueRaw => raw.tipo === 'crear_bloque')
+    .map((raw) => {
+      const id = createId('op')
+      if (raw.tipoBloque === 'clase' && !raw.materia) {
+        return { id, estado: 'invalido', motivo: 'Falta la materia para la clase nueva' }
+      }
+      if (!raw.horaInicio || !raw.horaFin) {
+        return { id, estado: 'invalido', motivo: 'Falta la hora del bloque nuevo' }
+      }
+      if (raw.diaSemana === null) {
+        return { id, estado: 'invalido', motivo: 'Falta el día de la semana del bloque nuevo' }
+      }
+      return {
+        id,
+        estado: 'resuelto',
+        tipo: raw.tipoBloque,
+        materiaNombre: raw.tipoBloque === 'clase' ? raw.materia : null,
+        diaSemana: raw.diaSemana,
+        horaInicio: raw.horaInicio,
+        horaFin: raw.horaFin,
+      }
+    })
+}
+
+// Bugs pendientes / Parte 2 — resuelve `modificar_bloque`/`borrar_bloque`
+// contra `bloquesExistentes`. Mismo criterio defensivo que
+// resolverOperacionesNotaExistente: >1 candidato válido siempre es
+// "ambiguo".
+export function resolverOperacionesBloqueExistente(
+  operacionesRaw: OperacionRaw[],
+  bloquesExistentes: BloqueHorarioContexto[]
+): OperacionBloqueExistenteResuelta[] {
+  return operacionesRaw
+    .filter((raw): raw is OperacionBloqueExistenteRaw => raw.tipo === 'modificar_bloque' || raw.tipo === 'borrar_bloque')
+    .map((raw) => {
+      const id = createId('op')
+      const accion = raw.tipo === 'modificar_bloque' ? 'modificar' : 'borrar'
+      const resolucion = resolverCandidatos(raw.indiceObjetivo, raw.indicesCandidatos, bloquesExistentes)
+
+      const cambios: CambiosBloqueIA | undefined =
+        accion === 'modificar' && Object.keys(raw.cambios).length > 0
+          ? {
+              materiaNombre: raw.cambios.materia,
+              diaSemana: raw.cambios.diaSemana,
+              horaInicio: raw.cambios.horaInicio,
+              horaFin: raw.cambios.horaFin,
+            }
+          : undefined
+
+      if (resolucion.estado === 'ambiguo') return { id, accion, estado: 'ambiguo', cambios, candidatos: resolucion.candidatos }
+      if (resolucion.estado === 'sin_coincidencias') return { id, accion, estado: 'sin_coincidencias' }
+      return { id, accion, estado: 'resuelto', bloqueId: resolucion.item.id, cambios }
     })
 }
