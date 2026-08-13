@@ -1,15 +1,16 @@
 'use client'
 import { ViewTransition } from 'react'
-import { usePathname } from 'next/navigation'
 import LightRays from './LightRays'
 import { useTheme } from '@/lib/theme'
 
 export default function LightRaysBackground() {
   const { theme } = useTheme()
-  const pathname = usePathname()
-  // La sección IA tiene su propio fondo (DotFieldBackground) para darle
-  // identidad propia en vez de heredar el de Agenda — Sprint 3.
-  if (theme === 'light' || pathname === '/ai') return null // los rayos de luz solo tienen sentido sobre fondo oscuro
+  // Sprint Correcciones /ai — antes esto excluía `/ai`, porque esa ruta
+  // tenía su propio DotFieldBackground. El Dot Field se movió DENTRO del
+  // overlay inmersivo (que es donde tiene sentido un fondo animado, ver
+  // AIImmersiveOverlay), así que la pantalla de entrada de /ai vuelve a
+  // heredar el fondo del resto de la app en vez de quedarse sin ninguno.
+  if (theme === 'light') return null // los rayos de luz solo tienen sentido sobre fondo oscuro
 
   return (
     <ViewTransition name="bg-rays" enter="bg-fade-in" exit="bg-fade-out" default="none">

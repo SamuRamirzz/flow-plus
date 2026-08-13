@@ -8,7 +8,6 @@ import { PreferenciasProvider, type Preferencias } from "@/lib/preferencias";
 import { CuentaEliminacionProvider, type EstadoCuentaEliminacion } from "@/lib/cuentaEliminacion";
 import BannerEliminacionCuenta from "@/components/BannerEliminacionCuenta";
 import LightRaysBackground from "@/components/reactbits/LightRaysBackground";
-import DotFieldBackground from "@/components/reactbits/DotFieldBackground";
 import NavDock from "@/components/NavDock";
 import ThemeToggle from "@/components/ThemeToggle";
 import AppSidebar from "@/components/AppSidebar";
@@ -81,7 +80,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                 <ImmersiveProvider>
                   <AjustesModalProvider>
                     <LightRaysBackground />
-                    <DotFieldBackground />
                     <ThemeToggle />
                     {/* Franja de "cuenta pendiente de eliminación" — se
                         renderiza siempre que hay sesión; se esconde sola si

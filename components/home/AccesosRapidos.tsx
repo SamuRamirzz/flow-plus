@@ -1,9 +1,10 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { Sparkles, BookOpen, ListChecks } from 'lucide-react'
+import { Sparkles, BookOpen, ListChecks, FileText } from 'lucide-react'
 import MagicBentoCard from '@/components/reactbits/MagicBento'
 import { RUTA_AGENDA } from '@/lib/rutas'
+import { useAjustesModal } from '@/lib/ajustesModal'
 
 type Props = { className?: string }
 
@@ -23,6 +24,7 @@ type Props = { className?: string }
 // condicionales de estado. Column compacta lateral, no un dato a vigilar.
 export default function AccesosRapidos({ className }: Props) {
   const router = useRouter()
+  const { abrir: abrirAjustes } = useAjustesModal()
 
   return (
     <div className={`flex flex-col gap-3 h-full ${className ?? ''}`}>
@@ -61,6 +63,23 @@ export default function AccesosRapidos({ className }: Props) {
           <div className="min-w-0">
             <p className="text-sm text-paper font-medium">Ver toda tu Agenda</p>
             <p className="text-muted text-xs">La tabla completa, con filtros</p>
+          </div>
+        </button>
+      </MagicBentoCard>
+
+      {/* Sprint Correcciones /ai — Parte 8. Los informes en PDF existían y
+          estaban conectados desde su sprint (Ajustes → Informes), pero ahí
+          nadie los encontraba: son un producto del trabajo del usuario, no una
+          preferencia de la app. Este es el acceso de un toque desde Home; abre
+          la MISMA categoría del modal en vez de duplicar la pantalla. */}
+      <MagicBentoCard>
+        <button onClick={() => abrirAjustes('informes')} className="group flex items-center gap-3 p-4 w-full text-left">
+          <span className="flex items-center justify-center w-9 h-9 rounded-full bg-panel-2 text-paper flex-shrink-0">
+            <FileText size={16} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm text-paper font-medium">Descargar un informe</p>
+            <p className="text-muted text-xs">Tu semana, mes o año en PDF</p>
           </div>
         </button>
       </MagicBentoCard>

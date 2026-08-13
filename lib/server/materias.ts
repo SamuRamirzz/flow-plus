@@ -146,6 +146,67 @@ export async function resolverOCrearMateria(input: {
   return { ok: false, error: errCrear.message }
 }
 
+/**
+ * Sprint Correcciones /ai — Parte 4. Lectura CRUDA del catálogo de materias
+ * del usuario: cada materia con su id, nombre exacto, ícono, y cuántas tareas
+ * y cuántos bloques de horario cuelgan de ella.
+ *
+ * Deliberadamente SIN ningún preprocesamiento: no agrupa, no normaliza
+ * nombres, no calcula similitud, no decide qué es un duplicado. Esa era la
+ * primera versión del encargo (una heurística de distancia de edición) y se
+ * reemplazó a propósito: dos materias que el usuario considera la misma
+ * pueden llamarse "Cálculo II" y "Calculo 2" (una heurística las junta) pero
+ * también "Mate" y "Matemáticas" (no las junta) o "Física I" y "Física II"
+ * (las junta, y está mal). El modelo razona mejor sobre la lista real que
+ * cualquier umbral fijo; acá solo se le entrega el dato sin cocinar.
+ *
+ * Los conteos NO se derivan de `tareasExistentes`/`bloquesExistentes` (que el
+ * Route Handler ya carga) a propósito: esos dos traen el NOMBRE de la materia
+ * ya resuelto, así que dos materias distintas con el mismo nombre —justo el
+ * caso que esta función existe para exponer— quedarían fundidas en una.
+ *
+ * SOLO LECTURA. Nada de lo que devuelve puede modificar nada por sí solo: si
+ * el usuario decide fusionar dos materias, eso sigue pasando por el aviso con
+ * botón explícito (AvisoDuplicadoMateria → POST /api/materias/fusionar), que
+ * es destructivo y exige un clic del usuario. El modelo puede señalar, nunca
+ * ejecutar.
+ */
+export type MateriaCompleta = {
+  id: string
+  nombre: string
+  icono: string | null
+  tareas: number
+  bloquesHorario: number
+}
+
+export async function listarMateriasCompletas(userId: string): Promise<MateriaCompleta[]> {
+  const [materiasRes, tareasRes, horarioRes] = await Promise.all([
+    supabaseServer.from('materias').select('id, nombre, icono').eq('user_id', userId).order('nombre'),
+    supabaseServer.from('tareas').select('materia_id').eq('user_id', userId),
+    supabaseServer.from('horario').select('materia_id').eq('user_id', userId),
+  ])
+
+  const materias = materiasRes.data ?? []
+  const contar = (filas: { materia_id: string | null }[] | null) => {
+    const mapa = new Map<string, number>()
+    for (const f of filas ?? []) {
+      if (!f.materia_id) continue
+      mapa.set(f.materia_id, (mapa.get(f.materia_id) ?? 0) + 1)
+    }
+    return mapa
+  }
+  const porTarea = contar(tareasRes.data)
+  const porHorario = contar(horarioRes.data)
+
+  return materias.map((m) => ({
+    id: m.id,
+    nombre: m.nombre,
+    icono: m.icono ?? null,
+    tareas: porTarea.get(m.id) ?? 0,
+    bloquesHorario: porHorario.get(m.id) ?? 0,
+  }))
+}
+
 async function buscarPorNombre(
   userId: string,
   nombre: string

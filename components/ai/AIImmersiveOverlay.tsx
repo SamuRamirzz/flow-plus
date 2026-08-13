@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence, useMotionValue, useTransform, type Variants } from 'motion/react'
-import { Loader2, Check, X, MessageCircle, Send, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Loader2, Check, X, MessageCircle, Send, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type { Materia, Tarea } from '@/lib/types'
 import type { BloqueHorario } from '@/lib/horario/tipos'
 import type { TareaContexto } from '@/lib/ai/agents/taskManagement'
@@ -14,6 +14,8 @@ import { procesarAdjunto } from '@/lib/ai/procesarAdjunto'
 import { concatenarTextoConAdjuntos } from '@/lib/ai/adjuntos'
 import { useAdjuntosPendientes, type AdjuntoPendiente } from '@/lib/ai/useAdjuntosPendientes'
 import { usePanelColapsado } from '@/lib/ai/usePanelColapsado'
+import { useDictado } from '@/lib/ai/useDictado'
+import { useAutoAlto } from '@/lib/ai/useAutoAlto'
 import ResultTaskRow, { type TareaEditable } from '@/components/ai/ResultTaskRow'
 import OperacionRow, { type OperacionEditable } from '@/components/ai/OperacionRow'
 import AdjuntoBoton from '@/components/ai/AdjuntoBoton'
@@ -22,6 +24,8 @@ import AdjuntosPendientesChips from '@/components/ai/AdjuntosPendientesChips'
 import TaskListPanel from '@/components/ai/TaskListPanel'
 import BloquesRespuesta from '@/components/ai/bloques/BloquesRespuesta'
 import TextoRico from '@/components/ai/bloques/TextoRico'
+import FondoOverlay from '@/components/ai/FondoOverlay'
+import { ShimmeringText } from '@/components/animate-ui/ShimmeringText'
 import AvisoDuplicadoMateria from '@/components/ui/AvisoDuplicadoMateria'
 import type { PosibleDuplicadoMateria } from '@/lib/ai/agents/calendar'
 import type { RegistroOperacion } from '@/components/ai/registroOperaciones'
@@ -62,17 +66,38 @@ type Props = {
   onDescartarDuplicado: () => void
 }
 
+// Sprint Correcciones /ai — Parte 3. Las animaciones se sentían "quebradas
+// de golpe". La causa no era el easing (ya era una curva suave) sino las
+// DURACIONES: 0.25-0.32s con desplazamientos de 60px hace que el ojo vea el
+// salto, no el recorrido. Estas constantes centralizan el criterio para que
+// todo el overlay se mueva igual, en vez de repetir números sueltos.
+
+/** Spring blando: se asienta sin rebote seco. Para paneles y elementos grandes. */
+const TRANSICION_PANEL = { type: 'spring', stiffness: 130, damping: 22, mass: 0.9 } as const
+
+/** Para entradas/salidas de mensajes: corta pero con curva de desaceleración real. */
+const TRANSICION_MENSAJE = { duration: 0.45, ease: [0.22, 1, 0.36, 1] } as const
+
 const contenidoVariants: Variants = {
   oculto: {},
-  visible: { transition: { staggerChildren: 0.18 } },
+  // 0.18 → 0.12: con el stagger anterior, la segunda columna tardaba casi
+  // dos décimas en empezar, y eso se leía como lentitud del overlay entero.
+  visible: { transition: { staggerChildren: 0.12 } },
 }
 
 const columnaVariants: Variants = {
   oculto: { opacity: 0, filter: 'blur(12px)', y: 12, transition: { duration: CIERRE_CONTENIDO_MS / 1000 } },
-  visible: { opacity: 1, filter: 'blur(0px)', y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } },
+  visible: { opacity: 1, filter: 'blur(0px)', y: 0, transition: { duration: 0.75, ease: [0.22, 1, 0.36, 1] } },
 }
 
-const CAJA_SPRING = { type: 'spring', stiffness: 190, damping: 25 } as const
+// stiffness 190 → 150 y damping 25 → 24: la caja llegaba a su tamaño final
+// con un frenazo perceptible. Más blando se siente como que se asienta.
+const CAJA_SPRING = { type: 'spring', stiffness: 150, damping: 24, mass: 0.9 } as const
+
+// Sprint Correcciones /ai — Parte 6.2. Tope de crecimiento del composer, en
+// px: ~7 líneas de `text-sm leading-relaxed`. Pasado eso hace scroll interno
+// en vez de seguir empujando la conversación hacia arriba.
+const ALTO_MAX_COMPOSER = 168
 
 // Texto de respaldo para el turno del usuario cuando escribió vacío y solo
 // adjuntó archivos — nunca debe quedar una línea en blanco en la columna
@@ -80,6 +105,45 @@ const CAJA_SPRING = { type: 'spring', stiffness: 190, damping: 25 } as const
 function nombresAdjuntos(adjuntos: AdjuntoPendiente[]): string {
   if (adjuntos.length === 0) return ''
   return `📎 ${adjuntos.map((a) => a.archivo.name).join(', ')}`
+}
+
+/**
+ * Sprint Correcciones /ai — Parte 3.3. Antes era un spinner + un texto fijo.
+ *
+ * El usuario reportó a la vez "las animaciones son abruptas" y "el overlay
+ * se siente lento", que parecen contradictorios pero son dos cosas
+ * distintas: lo abrupto eran las duraciones (ver las constantes de arriba),
+ * y la lentitud es la latencia REAL de Gemini (2-6s), que no se puede
+ * reducir desde acá. Lo que sí se puede es que la espera no se sienta
+ * muerta: texto con shimmer + tres líneas fantasma que laten, para que la
+ * pantalla comunique "esto viene en camino" en vez de "esto se colgó".
+ */
+function IndicadorPensando({ primerTurno }: { primerTurno: boolean }) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={TRANSICION_MENSAJE} className="flex flex-col gap-3">
+      <ShimmeringText
+        text={primerTurno ? 'Leyendo lo que escribiste…' : 'Pensando…'}
+        duration={1.4}
+        className="text-sm"
+        color="var(--color-muted)"
+        shimmeringColor="var(--color-coral)"
+      />
+      {/* Líneas fantasma: sugieren la forma de la respuesta que viene. Anchos
+          distintos y desfase en la animación para que se lea como texto
+          cargando, no como una barra de progreso. */}
+      <div className="flex flex-col gap-2" aria-hidden>
+        {[92, 78, 55].map((ancho, i) => (
+          <motion.div
+            key={ancho}
+            className="h-2.5 rounded-full bg-panel-glass"
+            style={{ width: `${ancho}%` }}
+            animate={{ opacity: [0.35, 0.7, 0.35] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut', delay: i * 0.18 }}
+          />
+        ))}
+      </div>
+    </motion.div>
+  )
 }
 
 export default function AIImmersiveOverlay({
@@ -111,6 +175,12 @@ export default function AIImmersiveOverlay({
   // ver el comentario de usePanelColapsado sobre por qué.
   const [panelColapsado, setPanelColapsado] = usePanelColapsado()
   const [siguienteMensaje, setSiguienteMensaje] = useState('')
+  // Sprint Correcciones /ai — Partes 5 y 6. El hook de dictado vive acá (no
+  // dentro de DictadoBoton) porque `enviarSiguiente` necesita `reiniciar()`;
+  // el de auto-alto necesita la ref del textarea.
+  const dictado = useDictado(setSiguienteMensaje)
+  const textareaSiguienteRef = useRef<HTMLTextAreaElement>(null)
+  useAutoAlto(textareaSiguienteRef, siguienteMensaje, ALTO_MAX_COMPOSER)
   // Sub-sprint 7.3.1 — archivos para el PRÓXIMO turno de seguimiento (los
   // del primer mensaje viajan como prop `adjuntosIniciales`, no por acá).
   const { adjuntos: adjuntosSiguiente, agregar: agregarAdjuntosSiguiente, quitar: quitarAdjuntoSiguiente, limpiar: limpiarAdjuntosSiguiente } =
@@ -267,6 +337,9 @@ export default function AIImmersiveOverlay({
     if ((!texto && adjuntosSiguiente.length === 0) || enviando) return
     const archivosParaEnviar = adjuntosSiguiente.map((a) => a.archivo)
     setSiguienteMensaje('')
+    // Parte 5 — sin esto, un resultado tardío del reconocedor de voz volvía a
+    // llenar la caja justo después de vaciarla. Ver useDictado.reiniciar.
+    dictado.reiniciar()
     limpiarAdjuntosSiguiente()
     const textoTurno = texto || nombresAdjuntos(adjuntosSiguiente)
     setTurnos((actuales) => [...actuales, { rol: 'usuario', id: createId('turno'), texto: textoTurno }])
@@ -366,17 +439,13 @@ export default function AIImmersiveOverlay({
   const radioMV = useTransform([anchoMV, altoMV], ([w, h]: number[]) => radioDeCaja(w, h, origen.height, viewport.h))
 
   const cajaCerrada = { x: origen.left, y: origen.top, width: origen.width, height: origen.height, backgroundColor: '#FF6B4D' }
-  // Sprint Rediseño /ai — Parte C. El fondo abierto era '#000000' OPACO, que
-  // tapaba por completo el DotField coral que ya vive en /ai (montado en el
-  // layout raíz, ver components/reactbits/DotFieldBackground.tsx).
-  //
-  // 0.94 + blur, no menos: con 0.82 (primer intento, corregido tras verlo en
-  // pantalla) se leía DEBAJO el contenido de la página — el h1 "¿Qué tienes
-  // en mente?" y los chips de ejemplo competían con la conversación. El
-  // `backdropFilter` es lo que hace el trabajo real: difumina lo que hay
-  // detrás, así que la grilla de puntos y su glow coral siguen presentes
-  // como textura, pero ningún texto de la página es legible a través.
-  const cajaAbierta = { x: 0, y: 0, width: viewport.w, height: viewport.h, backgroundColor: 'rgba(6, 7, 10, 0.94)' }
+  // Sprint Correcciones /ai — Parte 1. El fondo del overlay vuelve a ser
+  // OPACO (#06070A) y eso es correcto ahora: el Dot Field ya no está detrás
+  // del overlay, sino DENTRO (ver <FondoOverlay/> más abajo). Con el fondo
+  // translúcido del intento anterior se leía el contenido de la página por
+  // debajo, que era el bug; opaco + el fondo propio adentro da la misma
+  // textura sin nada que compita.
+  const cajaAbierta = { x: 0, y: 0, width: viewport.w, height: viewport.h, backgroundColor: '#06070A' }
 
   if (typeof document === 'undefined') return null
 
@@ -394,13 +463,16 @@ export default function AIImmersiveOverlay({
         width: anchoMV,
         height: altoMV,
         borderRadius: radioMV,
-        // Difumina el contenido de la página que queda detrás (ver el
-        // comentario de `cajaAbierta`): deja pasar la textura del DotField
-        // sin dejar legible ningún texto de debajo.
-        backdropFilter: 'blur(18px)',
       }}
       className="z-[100]"
     >
+      {/* Sprint Correcciones /ai — Parte 1. Dot Field + destello, dentro del
+          overlay y por debajo del contenido. Solo se encienden cuando la
+          caja ya terminó de expandirse: durante la apertura la caja todavía
+          es pequeña y la grilla se construiría con un tamaño que va a
+          cambiar en 600ms. */}
+      <FondoOverlay visible={fase !== 'expanding' && fase !== 'cerrando'} ancho={viewport.w} alto={viewport.h} />
+
       <motion.button
         onClick={onCerrar}
         initial={{ opacity: 0 }}
@@ -423,40 +495,20 @@ export default function AIImmersiveOverlay({
             style={{ width: viewport.w, height: viewport.h }}
             className="overflow-y-auto"
           >
-            <div className="w-full max-w-5xl mx-auto px-6 py-20 flex flex-col md:flex-row gap-10 md:gap-16">
-              {/* Sprint Rediseño /ai — Parte B. La columna se desmonta al
-                  colapsar (AnimatePresence) en vez de quedarse con width:0:
-                  así el `md:flex-1` de la columna de Tareas se reparte todo
-                  el ancho solo, sin tener que tocar sus clases. */}
-              <AnimatePresence initial={false} mode="popLayout">
-                {!panelColapsado && (
-                  <motion.div
-                    key="panel-entendi"
-                    layout
-                    variants={columnaVariants}
-                    // `exit` propio: sale deslizándose hacia la izquierda
-                    // fuera de pantalla, que es el movimiento que pedía el
-                    // encargo (translateX negativo), no un fade.
-                    exit={{ opacity: 0, x: -60, filter: 'blur(8px)', transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] } }}
-                    className="md:flex-1 min-w-0 relative"
-                  >
+            <div className="relative z-10 w-full max-w-5xl mx-auto px-6 py-20 flex flex-col md:flex-row gap-10 md:gap-16">
+              {/* Sprint Correcciones /ai — Parte 2. La conversación NUNCA se
+                  colapsa: es el contenido principal del overlay. El panel
+                  que se oculta es el de Tareas (ver más abajo). */}
+              <motion.div layout variants={columnaVariants} className="md:flex-1 min-w-0 relative">
                     <div className="flex items-center justify-between mb-4">
                       <p className="font-mono text-[11px] uppercase tracking-wide text-muted">Lo que entendí</p>
-                      <button
-                        onClick={() => setPanelColapsado(true)}
-                        aria-label="Ocultar el panel de conversación"
-                        title="Ocultar este panel"
-                        className="text-muted hover:text-paper transition p-1 -mr-1 cursor-pointer"
-                      >
-                        <PanelLeftClose size={15} />
-                      </button>
                     </div>
 
                 <div className="flex flex-col gap-5">
                   <AnimatePresence initial={false}>
                     {turnos.map((turno, i) =>
                       turno.rol === 'usuario' ? (
-                        <motion.p key={turno.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="text-xs font-mono text-muted">
+                        <motion.p key={turno.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={TRANSICION_MENSAJE} className="text-xs font-mono text-muted">
                           <span className="text-coral/70">Tú — </span>
                           {turno.texto}
                         </motion.p>
@@ -476,12 +528,7 @@ export default function AIImmersiveOverlay({
                     )}
                   </AnimatePresence>
 
-                  {enviando && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2.5 text-muted">
-                      <Loader2 size={16} className="animate-spin" />
-                      <span className="text-sm">{turnos.length === 0 ? 'Leyendo lo que escribiste…' : 'Pensando…'}</span>
-                    </motion.div>
-                  )}
+                  {enviando && <IndicadorPensando primerTurno={turnos.length === 0} />}
                 </div>
 
                 {avisoDuplicado && (
@@ -504,15 +551,31 @@ export default function AIImmersiveOverlay({
                       <AdjuntosPendientesChips adjuntos={adjuntosSiguiente} onQuitar={quitarAdjuntoSiguiente} />
                     </div>
                   )}
-                  <div className="flex items-center gap-2 bg-panel-glass backdrop-blur-xl rounded-full pl-4 pr-1.5 py-1.5">
-                    <input
+                  {/* Parte 6 — era un <input>, y por eso el texto largo se
+                      "salía de la caja": un input no envuelve, solo desplaza
+                      el contenido a un lado. Con <textarea> el texto salta de
+                      línea y la caja crece con él (useAutoAlto) hasta
+                      ALTO_MAX_COMPOSER. `items-end` para que los botones se
+                      queden abajo mientras crece, en vez de quedar centrados
+                      contra un bloque de varias líneas. */}
+                  <div className="flex items-end gap-2 bg-panel-glass backdrop-blur-xl rounded-3xl pl-4 pr-1.5 py-1.5">
+                    <textarea
+                      ref={textareaSiguienteRef}
                       value={siguienteMensaje}
                       onChange={(e) => setSiguienteMensaje(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && enviarSiguiente()}
+                      // Enter envía; Shift+Enter deja escribir varias líneas —
+                      // lo que ahora tiene sentido, porque la caja crece.
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          enviarSiguiente()
+                        }
+                      }}
                       onPaste={manejarPegadoSiguiente}
                       disabled={enviando}
+                      rows={1}
                       placeholder={turnos.length === 0 ? 'Esperando respuesta…' : 'Seguí la conversación — ej: "cámbiale la fecha"'}
-                      className="flex-1 min-w-0 bg-transparent text-sm text-paper placeholder:text-muted/60 outline-none disabled:opacity-50"
+                      className="flex-1 min-w-0 bg-transparent text-sm leading-relaxed text-paper placeholder:text-muted/60 outline-none resize-none disabled:opacity-50 py-1"
                     />
                     <AdjuntoBoton onSeleccionar={agregarAdjuntosSiguiente} deshabilitado={enviando} />
                     {/* Bug 7.4 — el micrófono existía solo en el composer
@@ -524,7 +587,12 @@ export default function AIImmersiveOverlay({
                         `textoActual` y `setSiguienteMensaje` recibe el texto
                         ya armado (base + dictado), igual que el textarea
                         del estado idle. */}
-                    <DictadoBoton textoActual={siguienteMensaje} onTranscripcion={setSiguienteMensaje} deshabilitado={enviando} />
+                    <DictadoBoton
+                      soportado={dictado.soportado}
+                      estado={dictado.estado}
+                      onAlternar={() => dictado.alternar(siguienteMensaje)}
+                      deshabilitado={enviando}
+                    />
                     <button
                       onClick={enviarSiguiente}
                       disabled={(!siguienteMensaje.trim() && adjuntosSiguiente.length === 0) || enviando}
@@ -535,48 +603,79 @@ export default function AIImmersiveOverlay({
                     </button>
                   </div>
                 </div>
+              </motion.div>
+
+              {/* Sprint Correcciones /ai — Partes 2 y 7. El panel de Tareas
+                  es el que se colapsa (se desmonta, así la conversación se
+                  reparte el ancho sola) y el que queda STICKY: al hacer
+                  scroll en la conversación se mantiene a la vista, con su
+                  propio scroll interno si hay más tareas de las que caben. */}
+              <AnimatePresence initial={false} mode="popLayout">
+                {!panelColapsado && (
+                  <motion.div
+                    key="panel-tareas"
+                    layout
+                    variants={columnaVariants}
+                    // Sale hacia la DERECHA (x positivo), que es el borde por
+                    // el que se va — al revés que el intento anterior.
+                    exit={{ opacity: 0, x: 60, filter: 'blur(8px)', transition: TRANSICION_PANEL }}
+                    className="md:flex-1 flex flex-col gap-2.5 min-w-0 md:sticky md:top-20 md:self-start md:max-h-[calc(100vh-7rem)]"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="font-mono text-[11px] uppercase tracking-wide text-muted">Tareas</p>
+                      <button
+                        onClick={() => setPanelColapsado(true)}
+                        aria-label="Ocultar el panel de tareas"
+                        title="Ocultar este panel"
+                        className="text-muted hover:text-paper transition p-1 -mr-1 cursor-pointer"
+                      >
+                        <PanelRightClose size={15} />
+                      </button>
+                    </div>
+                    {/* El scroll vive acá dentro, no en la columna: así el
+                        encabezado "Tareas" y el botón de ocultar se quedan
+                        fijos mientras la lista se desplaza. */}
+                    <div className="min-h-0 flex-1 overflow-y-auto">
+                      <TaskListPanel
+                        tareas={tareasActuales}
+                        cargando={cargandoTareas}
+                        materias={materias}
+                        registro={registro}
+                        onDeshacer={onDeshacer}
+                      />
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
-
-              <motion.div layout variants={columnaVariants} className="md:flex-1 flex flex-col gap-2.5 min-w-0">
-                <p className="font-mono text-[11px] uppercase tracking-wide text-muted mb-1.5">Tareas</p>
-                <TaskListPanel
-                  tareas={tareasActuales}
-                  cargando={cargandoTareas}
-                  materias={materias}
-                  registro={registro}
-                  onDeshacer={onDeshacer}
-                />
-              </motion.div>
             </div>
 
-            {/* Pestaña de reapertura. Fuera del contenedor con `max-w-5xl`
-                para poder pegarse al borde REAL de la pantalla, no al del
-                contenido centrado. Click (no drag): es lo bastante
-                intuitivo y no compite con el scroll vertical del overlay,
-                que en móvil sería el gesto en conflicto. */}
+            {/* Pestaña de reapertura, pegada al borde DERECHO (es el panel
+                de Tareas el que se oculta por ahí). Fuera del contenedor
+                `max-w-5xl` para poder tocar el borde real de la pantalla y
+                no el del contenido centrado. Click, no drag: no compite con
+                el scroll vertical del overlay, que en móvil sería el gesto
+                en conflicto. */}
             <AnimatePresence>
               {panelColapsado && (
                 <motion.button
                   key="pestana-panel"
                   onClick={() => setPanelColapsado(false)}
-                  initial={{ opacity: 0, x: -40 }}
+                  initial={{ opacity: 0, x: 40 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -40 }}
-                  transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-                  aria-label="Mostrar el panel de conversación"
-                  title="Mostrar la conversación"
-                  className="fixed left-0 top-1/2 -translate-y-1/2 z-[101] flex flex-col items-center gap-2 py-5 pl-2 pr-2.5 rounded-r-2xl bg-panel-glass backdrop-blur-xl text-muted hover:text-paper transition cursor-pointer"
+                  exit={{ opacity: 0, x: 40 }}
+                  transition={TRANSICION_PANEL}
+                  aria-label="Mostrar el panel de tareas"
+                  title="Mostrar las tareas"
+                  className="fixed right-0 top-1/2 -translate-y-1/2 z-[101] flex flex-col items-center gap-2 py-5 pr-2 pl-2.5 rounded-l-2xl bg-panel-glass backdrop-blur-xl text-muted hover:text-paper transition cursor-pointer"
                 >
-                  <PanelLeftOpen size={16} className="text-coral" />
+                  <PanelRightOpen size={16} className="text-coral" />
                   {/* Texto rotado: identifica el panel oculto sin robar
                       ancho a la conversación. */}
                   <span
                     className="font-mono text-[10px] uppercase tracking-wide whitespace-nowrap"
-                    style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                    style={{ writingMode: 'vertical-rl' }}
                   >
-                    Lo que entendí
+                    Tareas
                   </span>
                 </motion.button>
               )}
@@ -623,7 +722,7 @@ function TurnoIACard({
   })()
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex flex-col gap-2.5">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={TRANSICION_MENSAJE} className="flex flex-col gap-2.5">
       {turno.tipoRespuesta === 'error' ? (
         <p className="text-danger text-sm leading-relaxed">{turno.mensaje}</p>
       ) : turno.tipoRespuesta === 'conversacional' ? (
@@ -646,7 +745,7 @@ function TurnoIACard({
           <div className="flex flex-col gap-2.5">
             <AnimatePresence initial={false}>
               {turno.operaciones.map((op, i) => (
-                <motion.div key={op.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.25, delay: i * 0.05 }}>
+                <motion.div key={op.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ ...TRANSICION_MENSAJE, delay: i * 0.06 }}>
                   {op.tipo === 'crear' ? (
                     <ResultTaskRow tarea={op} materias={materias} horario={horario} onChange={onChange} onRemove={onQuitar} />
                   ) : (

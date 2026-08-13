@@ -17,7 +17,7 @@ import { supabaseServer } from '@/lib/server/supabaseServer'
 import { esRutaDelUsuario } from '@/lib/server/rutaStorage'
 import { crearNota } from '@/lib/server/notas'
 import { crearBloque, actualizarBloque, borrarBloque, hayColision } from '@/lib/server/horario'
-import { resolverOCrearMateria } from '@/lib/server/materias'
+import { resolverOCrearMateria, listarMateriasCompletas } from '@/lib/server/materias'
 import { minutosDesdeHHMM, hhmmDesdeMinutos } from '@/lib/horario/horaMinutos'
 
 // Sprint 7.1 Parte 2 — sucesor de /api/ai/homework para la pantalla /ai:
@@ -513,6 +513,10 @@ export async function POST(request: Request) {
   const bloquesExistentes = await cargarBloquesParaContexto(userId)
   const archivosExistentes = await cargarArchivosParaContexto(userId)
   const notasExistentes = await cargarNotasParaContexto(userId, tareasExistentes, bloquesExistentes)
+  // Sprint Correcciones /ai — Parte 4. Catálogo crudo de materias, para que
+  // el modelo pueda responder por sí mismo sobre duplicados o nombres mal
+  // escritos. Es solo lectura: no habilita ninguna operación nueva.
+  const materiasCompletas = await listarMateriasCompletas(userId)
 
   // ⚠️ Bug real corregido acá (Sprint Archivos / Fase 4.3): este endpoint
   // pasaba un tercer argumento (`{userId, generatedAt}`) a `execute()`, un
@@ -538,6 +542,7 @@ export async function POST(request: Request) {
       bloquesExistentes,
       archivosExistentes,
       notasExistentes,
+      materiasCompletas,
       ...(cargaAdjuntos.adjuntos.length > 0 ? { adjuntos: cargaAdjuntos.adjuntos } : {}),
     },
   })

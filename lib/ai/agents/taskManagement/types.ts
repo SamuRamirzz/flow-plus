@@ -119,6 +119,25 @@ export type OperacionCrearNotaResuelta =
 // referencia como "mi apunte de Física" o "mi archivo Collective Nouns".
 export type ArchivoContexto = { id: string; nombre: string }
 
+// Sprint Correcciones /ai — Parte 4. El catálogo COMPLETO de materias, crudo:
+// nombre exacto (sin normalizar), ícono, y cuánto cuelga de cada una. Es lo
+// único que el modelo necesita para contestar "¿tengo materias repetidas?"
+// razonando él, en vez de que el servidor decida por él con un umbral de
+// similitud. Ver lib/server/materias.ts::listarMateriasCompletas.
+//
+// Distinto de la lista de materias que ya viaja dentro de TareaContexto/
+// BloqueHorarioContexto: ahí el nombre viene resuelto y una materia sin
+// ninguna tarea ni bloque simplemente no aparece — que es justo el caso
+// sospechoso al buscar duplicados (una materia repetida suele tener 0 de
+// todo, porque quedó huérfana al crearse por error).
+export type MateriaContextoCompleta = {
+  id: string
+  nombre: string
+  icono: string | null
+  tareas: number
+  bloquesHorario: number
+}
+
 // Sprint Sistema de Notas Unificado (Parte E) — mismo espíritu que
 // TareaContexto: el resumen mínimo de un bloque de horario que el modelo
 // puede "ver" para resolver una referencia ("mi clase de Inglés de los

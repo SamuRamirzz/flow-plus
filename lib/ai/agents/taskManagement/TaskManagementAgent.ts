@@ -12,6 +12,7 @@ import {
   type BloqueHorarioContexto,
   type ArchivoContexto,
   type NotaContextoIA,
+  type MateriaContextoCompleta,
   type TaskManagementAgentOutput,
 } from './types'
 
@@ -107,6 +108,21 @@ function normalizarNotasExistentesContexto(metadata: Record<string, unknown> | u
 
 // Sprint Sistema de Notas Unificado (Parte E, cierre del gap de "archivo
 // existente") — mismo criterio defensivo que los otros normalizadores.
+// Sprint Correcciones /ai — Parte 4. Mismo criterio defensivo que el resto.
+function normalizarMateriasCompletas(metadata: Record<string, unknown> | undefined): MateriaContextoCompleta[] {
+  const lista = metadata?.materiasCompletas
+  if (!Array.isArray(lista)) return []
+  return lista.filter(
+    (m): m is MateriaContextoCompleta =>
+      typeof m === 'object' &&
+      m !== null &&
+      typeof (m as MateriaContextoCompleta).id === 'string' &&
+      typeof (m as MateriaContextoCompleta).nombre === 'string' &&
+      typeof (m as MateriaContextoCompleta).tareas === 'number' &&
+      typeof (m as MateriaContextoCompleta).bloquesHorario === 'number'
+  )
+}
+
 function normalizarArchivosExistentes(metadata: Record<string, unknown> | undefined): ArchivoContexto[] {
   const lista = metadata?.archivosExistentes
   if (!Array.isArray(lista)) return []
@@ -208,6 +224,19 @@ function listarArchivosParaPrompt(archivos: ArchivoContexto[]): string | null {
   return archivos.map((a, i) => `${i}: "${a.nombre}"`).join('\n')
 }
 
+// Sprint Correcciones /ai — Parte 4. A diferencia de las otras listas, ésta
+// NO lleva índice: el modelo nunca la usa para apuntar a nada (no hay ninguna
+// operación de materia en el schema, a propósito — ver la instrucción del
+// prompt). Es puramente material de lectura para que razone sobre el catálogo.
+// Se muestra el nombre entre comillas y sin tocar, porque los espacios de más
+// y las diferencias de mayúsculas son EXACTAMENTE la señal que hay que ver.
+function listarMateriasParaPrompt(materias: MateriaContextoCompleta[]): string | null {
+  if (materias.length === 0) return null
+  return materias
+    .map((m) => `- "${m.nombre}" (id ${m.id}${m.icono ? `, ícono ${m.icono}` : ''}) — ${m.tareas} tarea(s), ${m.bloquesHorario} bloque(s) de horario`)
+    .join('\n')
+}
+
 // Sprint Sistema de Notas Unificado (Parte E) — mismo criterio: índices
 // 0-based propios de ESTA lista (independiente de los de tareas/bloques),
 // usados cuando objetivoTipo es 'nota' (editar_nota/borrar_nota).
@@ -238,7 +267,8 @@ function construirInstruccionSistema(
   conversacionesTexto: string | null,
   bloquesTexto: string | null,
   notasExistentesTexto: string | null,
-  archivosTexto: string | null
+  archivosTexto: string | null,
+  materiasTexto: string | null
 ): string {
   return [
     'Eres el motor de gestión de tareas de Flow+, una app de agenda académica para estudiantes.',
@@ -290,6 +320,21 @@ function construirInstruccionSistema(
       ? [
           'Estas son las notas que el usuario ya tiene guardadas (de tareas, bloques de horario, archivos o materias), numeradas con SU PROPIO índice — independiente de los de arriba. Usa este índice SOLO para "editar_nota"/"borrar_nota" (objetivoTipo siempre "nota" en esos dos casos):',
           notasExistentesTexto,
+        ]
+      : []),
+    // Sprint Correcciones /ai — Parte 4. Datos crudos del catálogo + la
+    // instrucción de que el análisis lo hagas VOS, no el servidor. Antes esta
+    // pregunta ("¿tengo materias repetidas?") se contestaba sola desde el
+    // horario, y por eso confundía dos cosas distintas: la misma materia
+    // dictada varios días (normal) con dos materias distintas en el catálogo
+    // (lo que de verdad conviene mirar).
+    ...(materiasTexto
+      ? [
+          'Éste es el catálogo COMPLETO de materias del usuario, tal cual está guardado — nombres exactos, sin normalizar ni agrupar, con cuánto cuelga de cada una:',
+          materiasTexto,
+          'Cuando el usuario pregunte por materias duplicadas, nombres repetidos, o cualquier análisis de su catálogo ("¿tengo materias repetidas?", "¿tengo algo mal escrito?", "¿cuántas materias tengo?"), analizá VOS esta lista y respondé con tipoRespuesta "conversacional" — nadie la analizó por vos, son los datos crudos.',
+          'Al hacerlo distinguí dos cosas que NO son lo mismo: (a) una MISMA materia con varios bloques de horario en distintos días u horas es completamente normal, no es un duplicado — no la reportes como problema; (b) DOS ENTRADAS DISTINTAS del catálogo que en realidad son la misma materia (mismo nombre repetido, o variantes como "Calculo 2" y "Cálculo II", diferencias de mayúsculas, tildes o espacios de más) SÍ vale la pena señalarlas. Una entrada con 0 tareas y 0 bloques suele ser una creada por error. Cuidado con lo contrario: "Física I" y "Física II" son materias legítimamente distintas, no un duplicado.',
+          'Vos solo señalás lo que ves y explicás por qué: NUNCA digas que fusionaste, uniste, borraste o corregiste materias, ni ofrezcas hacerlo vos — no tenés ninguna operación para eso. Fusionar dos materias es destructivo y lo confirma el usuario con un botón en la app; limitate a decirle cuáles te parecen repetidas y por qué.',
         ]
       : []),
     ...(conversacionesTexto
@@ -386,6 +431,9 @@ class TaskManagementAgentImpl implements AIAgent<TaskManagementAgentOutput> {
     const bloquesExistentes = normalizarBloquesExistentes(request.metadata)
     const notasExistentesContexto = normalizarNotasExistentesContexto(request.metadata)
     const archivosExistentes = normalizarArchivosExistentes(request.metadata)
+    // Sprint Correcciones /ai — Parte 4. Catálogo crudo de materias (mismo
+    // camino que las otras listas: consulta puntual del Route Handler).
+    const materiasCompletas = normalizarMateriasCompletas(request.metadata)
 
     const metadata: StructuredProviderMetadata = {
       systemInstruction: construirInstruccionSistema(
@@ -397,7 +445,8 @@ class TaskManagementAgentImpl implements AIAgent<TaskManagementAgentOutput> {
         conversacionesTexto,
         listarBloquesParaPrompt(bloquesExistentes),
         listarNotasExistentesParaPrompt(notasExistentesContexto),
-        listarArchivosParaPrompt(archivosExistentes)
+        listarArchivosParaPrompt(archivosExistentes),
+        listarMateriasParaPrompt(materiasCompletas)
       ),
       outputSchema: TASK_MANAGEMENT_OUTPUT_SCHEMA,
       // Sin adjuntos: ninguna de las dos claves se agrega (undefined se

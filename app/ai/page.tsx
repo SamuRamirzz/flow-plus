@@ -16,10 +16,10 @@ import { payloadDeshacer, type RegistroOperacion } from '@/components/ai/registr
 import { createId } from '@/lib/ai/utils'
 import { mensajeAvisoCalendario, type PosibleDuplicadoMateria } from '@/lib/ai/agents/calendar'
 import { useAdjuntosPendientes, type AdjuntoPendiente } from '@/lib/ai/useAdjuntosPendientes'
+import { useDictado } from '@/lib/ai/useDictado'
 import AdjuntoBoton from '@/components/ai/AdjuntoBoton'
 import DictadoBoton from '@/components/ai/DictadoBoton'
 import AdjuntosPendientesChips from '@/components/ai/AdjuntosPendientesChips'
-import DestelloEntrada from '@/components/ai/DestelloEntrada'
 import AIImmersiveOverlay from '@/components/ai/AIImmersiveOverlay'
 import TaskListPanel from '@/components/ai/TaskListPanel'
 import { overlayFaseReducer, FASE1_EXPANSION_MS, FASE2_VACIO_MS, RADIO_PILDORA, type RectOrigen } from '@/components/ai/overlayLogic'
@@ -179,6 +179,11 @@ export default function AIPage() {
   const confirmacionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Sprint Correcciones /ai — Parte 5. El hook sube acá desde DictadoBoton
+  // porque `abrirAnalisis` (que vacía el textarea) necesita `reiniciar()`:
+  // sin eso, un resultado tardío del reconocedor volvía a llenar la caja
+  // después de enviar. Ver useDictado.reiniciar.
+  const dictado = useDictado(setTexto)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const respiroTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -256,6 +261,7 @@ export default function AIPage() {
     setMensajeEnviado(texto)
     setAdjuntosEnviados(adjuntosPendientes)
     setTexto('')
+    dictado.reiniciar()
     limpiarAdjuntos()
   }
 
@@ -484,10 +490,6 @@ export default function AIPage() {
 
   return (
     <>
-      {/* Sprint Rediseño /ai — Parte D. Fuera del <main> a propósito: es una
-          capa de pantalla completa, y dentro quedaría recortada por el
-          `overflow-x-hidden` y el ancho máximo del contenido. */}
-      <DestelloEntrada />
       <main
       // Ajuste (4ta vuelta) — un paso más ancho en los dos estados
       // (antes max-w-3xl/max-w-6xl) para darle al h1 más espacio real y
@@ -656,7 +658,12 @@ export default function AIPage() {
                         directamente (ya llega armado con lo que había +
                         lo dictado, ver useDictado) — no se concatena acá
                         para no duplicar esa lógica en dos lugares. */}
-                    <DictadoBoton textoActual={texto} onTranscripcion={setTexto} deshabilitado={escribirDeshabilitado} />
+                    <DictadoBoton
+                      soportado={dictado.soportado}
+                      estado={dictado.estado}
+                      onAlternar={() => dictado.alternar(texto)}
+                      deshabilitado={escribirDeshabilitado}
+                    />
                   </div>
                   {/* El botón NO se desmonta al abrir el overlay: se atenúa.
                       Así su rect sigue siendo medible, el layout no salta, y

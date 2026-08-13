@@ -41,6 +41,19 @@ type UseDictadoResultado = {
    *  momento del clic — el hook lo usa como base para no reemplazar lo que
    *  el usuario ya había escrito a mano. */
   alternar: (textoActual: string) => void
+  /**
+   * Sprint Correcciones /ai — Parte 5. El texto dictado ya se consumió (se
+   * envió el mensaje y el campo se vació): corta la escucha y olvida la base
+   * y el acumulado.
+   *
+   * Sin esto aparecía el bug reportado: al enviar por voz, el texto volvía a
+   * la caja. `stop()` no es instantáneo — el reconocedor todavía emite un
+   * `onresult` final con el audio pendiente, y ese handler llamaba a
+   * `onTranscripcion(base + dictado)` DESPUÉS de que el envío ya había hecho
+   * `setTexto('')`, rellenando el campo recién vaciado. Con el envío manual
+   * nunca pasaba porque no había ningún reconocedor vivo que emitiera nada.
+   */
+  reiniciar: () => void
 }
 
 // `onTranscripcion` recibe el texto COMPLETO ya armado (base + lo dictado
@@ -136,6 +149,24 @@ export function useDictado(onTranscripcion: (textoCompleto: string) => void): Us
     [estado, iniciar, detener]
   )
 
+  // Ver el comentario de `reiniciar` en el tipo de arriba. Se desenganchan
+  // los handlers ANTES de `stop()` a propósito: `stop()` procesa el audio
+  // pendiente y dispara `onresult`/`onend` después, y esos son justamente los
+  // que no deben volver a tocar el campo.
+  const reiniciar = useCallback(() => {
+    const reconocedor = reconocedorRef.current
+    if (reconocedor) {
+      reconocedor.onresult = null
+      reconocedor.onerror = null
+      reconocedor.onend = null
+      reconocedor.stop()
+      reconocedorRef.current = null
+    }
+    baseRef.current = ''
+    finalAcumuladoRef.current = ''
+    setEstado((actual) => (actual === 'escuchando' ? 'inactivo' : actual))
+  }, [])
+
   // Si el usuario navega fuera de /ai con el micrófono todavía activo, no
   // debe seguir escuchando en segundo plano.
   useEffect(() => {
@@ -144,5 +175,5 @@ export function useDictado(onTranscripcion: (textoCompleto: string) => void): Us
     }
   }, [])
 
-  return { soportado, estado, alternar }
+  return { soportado, estado, alternar, reiniciar }
 }

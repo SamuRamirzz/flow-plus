@@ -2,22 +2,25 @@
 
 import { Mic, MicOff } from 'lucide-react'
 import { motion } from 'motion/react'
-import { useDictado } from '@/lib/ai/useDictado'
+import type { EstadoDictado } from '@/lib/ai/useDictado'
 
 type Props = {
-  /** Texto actual del textarea — se usa como base al empezar a dictar,
-   *  para no reemplazar lo que el usuario ya había escrito a mano. */
-  textoActual: string
-  onTranscripcion: (textoCompleto: string) => void
+  soportado: boolean
+  estado: EstadoDictado
+  onAlternar: () => void
   deshabilitado?: boolean
 }
 
 // Sub-sprint 7.4 — botón de dictado por voz, mismo lenguaje visual y
 // tamaño que AdjuntoBoton (w-8 h-8, círculo, mismos colores) para que
 // convivan en la misma fila del composer sin desentonar.
-export default function DictadoBoton({ textoActual, onTranscripcion, deshabilitado }: Props) {
-  const { soportado, estado, alternar } = useDictado(onTranscripcion)
-
+//
+// Sprint Correcciones /ai — Parte 5: este componente pasó a ser PRESENTACIONAL.
+// Antes llamaba a `useDictado` por dentro, y eso dejaba al hook fuera del
+// alcance de quien envía el mensaje — que es justo el que sabe que el texto
+// dictado ya se consumió y hay que olvidarlo (ver `reiniciar` en useDictado).
+// Ahora el hook vive en el composer y acá solo llegan estado y callbacks.
+export default function DictadoBoton({ soportado, estado, onAlternar, deshabilitado }: Props) {
   // Degradación con gracia: sin soporte (Firefox, Safari en varias
   // versiones), el botón ni se monta — nada de ícono deshabilitado ni
   // mensaje de error confuso ocupando espacio para algo que nunca va a
@@ -30,7 +33,7 @@ export default function DictadoBoton({ textoActual, onTranscripcion, deshabilita
   return (
     <button
       type="button"
-      onClick={() => alternar(textoActual)}
+      onClick={onAlternar}
       disabled={deshabilitado}
       title={error ? 'No se pudo escuchar — probá de nuevo' : escuchando ? 'Detener dictado' : 'Dictar por voz'}
       className={`relative w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full transition disabled:opacity-40 disabled:cursor-not-allowed ${
