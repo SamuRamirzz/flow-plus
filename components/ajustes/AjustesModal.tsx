@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronLeft, ChevronRight, Search, X, User, Sun, Clock, Bell, LifeBuoy, Sparkles, LogOut, Settings, type LucideIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, X, User, Sun, Clock, Bell, FileText, LifeBuoy, Sparkles, LogOut, Settings, type LucideIcon } from 'lucide-react'
 import { useMontado } from '@/lib/useMontado'
 import { useAjustesModal, type CategoriaAjustesId } from '@/lib/ajustesModal'
 import { buscarCategorias } from '@/lib/ajustes/busqueda'
@@ -10,6 +10,7 @@ import CategoriaPerfil from './CategoriaPerfil'
 import CategoriaApariencia from './CategoriaApariencia'
 import CategoriaFechaHora from './CategoriaFechaHora'
 import CategoriaNotificaciones from './CategoriaNotificaciones'
+import CategoriaInformes from './CategoriaInformes'
 import CategoriaSoporte from './CategoriaSoporte'
 import CategoriaProximamente from './CategoriaProximamente'
 import CategoriaCerrarSesion from './CategoriaCerrarSesion'
@@ -19,6 +20,7 @@ const CATEGORIAS: { id: CategoriaAjustesId; label: string; icono: LucideIcon; Co
   { id: 'apariencia', label: 'Apariencia', icono: Sun, Componente: CategoriaApariencia },
   { id: 'fecha-hora', label: 'Fecha y hora', icono: Clock, Componente: CategoriaFechaHora },
   { id: 'notificaciones', label: 'Notificaciones', icono: Bell, Componente: CategoriaNotificaciones },
+  { id: 'informes', label: 'Informes', icono: FileText, Componente: CategoriaInformes },
   { id: 'soporte', label: 'Soporte', icono: LifeBuoy, Componente: CategoriaSoporte },
   { id: 'proximamente', label: 'Próximamente', icono: Sparkles, Componente: CategoriaProximamente },
   { id: 'cerrar-sesion', label: 'Cerrar sesión', icono: LogOut, Componente: CategoriaCerrarSesion },

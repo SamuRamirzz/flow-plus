@@ -7,6 +7,7 @@ import { examAgent } from './agents/exam'
 import { calendarAgent } from './agents/calendar'
 import { resumenConversacionAgent } from './agents/resumenConversacion'
 import { analisisArchivoAgent, preguntaArchivoAgent } from './agents/analisisArchivo'
+import { puntosClaveInformeAgent } from './agents/puntosClaveInforme'
 
 let registered = false
 
@@ -57,5 +58,11 @@ export function registerAgents(): void {
   }
   if (!aiOrchestrator.getAgent(preguntaArchivoAgent.definition.id)) {
     aiOrchestrator.registerAgent(preguntaArchivoAgent)
+  }
+  // Sprint 18a — la única sección con IA del informe PDF. Su salida se valida
+  // contra los datos provistos antes de aceptarse; si falla o inventa una
+  // cifra, el informe usa un texto determinístico y se genera igual.
+  if (!aiOrchestrator.getAgent(puntosClaveInformeAgent.definition.id)) {
+    aiOrchestrator.registerAgent(puntosClaveInformeAgent)
   }
 }

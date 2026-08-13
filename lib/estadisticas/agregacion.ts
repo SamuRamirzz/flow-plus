@@ -1,29 +1,16 @@
 import type { Materia, Tarea } from '@/lib/types'
-import { diaISODeFecha, diasEntre } from '@/lib/horario/dias'
+import { diasEntre, lunesDeSemana, sumarDias } from '@/lib/horario/dias'
 
 // Sprint Home / Parte B — informes de rendimiento. PURO, mismo criterio que
 // todo lib/horario/: cero I/O, cero new Date() acá dentro, `hoy` siempre
-// inyectado. La aritmética de fechas reusa diaISODeFecha/diasEntre
-// (lib/horario/dias.ts) en vez de reimplementar suma de fechas por tercera
-// vez en el repo.
-
-// Lunes (ISO) de la semana que contiene `fechaISO`. No existía un helper de
-// esto en lib/horario/ — se construye acá con las piezas que sí existen:
-// diaISODeFecha da 1..7 (1=lunes), así que retroceder (diaISO - 1) días
-// desde `fechaISO` llega siempre al lunes de esa semana.
-function lunesDeSemana(fechaISO: string): string {
-  const diaISO = diaISODeFecha(fechaISO)
-  const [anio, mes, dia] = fechaISO.split('-').map(Number)
-  const epoca = Date.UTC(anio, mes - 1, dia) - (diaISO - 1) * 86_400_000
-  const d = new Date(epoca)
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
-}
-
-function sumarDias(fechaISO: string, dias: number): string {
-  const [anio, mes, dia] = fechaISO.split('-').map(Number)
-  const d = new Date(Date.UTC(anio, mes - 1, dia) + dias * 86_400_000)
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
-}
+// inyectado. La aritmética de fechas reusa lib/horario/dias.ts en vez de
+// reimplementar suma de fechas por tercera vez en el repo.
+//
+// Sprint 18a — `lunesDeSemana` y `sumarDias` VIVÍAN ACÁ como privadas,
+// duplicando la aritmética de epoch UTC de dias.ts. Se movieron a ese módulo
+// (su casa natural, ver el comentario allá) y ahora se importan. La API
+// pública de este archivo no cambió: sus tests existentes siguen pasando sin
+// tocarse.
 
 export type SemanaCumplimiento = {
   /** Lunes ISO de esa semana — la etiqueta de la barra en la gráfica. */

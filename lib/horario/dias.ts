@@ -61,3 +61,62 @@ export function siguienteOcurrencia(hoy: string, dia: DiaSemana, incluirHoy = fa
   const delta = diasHastaProximo(hoy, dia, incluirHoy)
   return deEpocaUTC(aEpocaUTC(hoy) + delta * MS_POR_DIA)
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint 18a (Informes PDF) — helpers que estaban PRIVADOS y DUPLICADOS.
+// ═══════════════════════════════════════════════════════════════════════════
+// `sumarDias` y `lunesDeSemana` vivían privados en lib/estadisticas/
+// agregacion.ts, reimplementando la misma aritmética de epoch UTC que este
+// módulo ya tenía en aEpocaUTC/deEpocaUTC. El comentario de aquel archivo lo
+// admitía: "no existía un helper de esto en lib/horario/". Ahora sí — se
+// mueven acá (su casa natural) y agregacion.ts los importa, en vez de tener
+// una tercera copia de la misma cuenta.
+
+/** Suma (o resta, con `dias` negativo) días calendario a una fecha ISO. */
+export function sumarDias(fechaISO: string, dias: number): string {
+  return deEpocaUTC(aEpocaUTC(fechaISO) + dias * MS_POR_DIA)
+}
+
+/**
+ * Lunes (ISO) de la semana que contiene `fechaISO`. `diaISODeFecha` da 1..7
+ * con 1=lunes, así que retroceder (diaISO - 1) días llega siempre al lunes.
+ */
+export function lunesDeSemana(fechaISO: string): string {
+  return sumarDias(fechaISO, -(diaISODeFecha(fechaISO) - 1))
+}
+
+/** Domingo (ISO) de la semana que contiene `fechaISO` — el lunes + 6. */
+export function domingoDeSemana(fechaISO: string): string {
+  return sumarDias(lunesDeSemana(fechaISO), 6)
+}
+
+export function primerDiaDeMes(fechaISO: string): string {
+  return `${fechaISO.slice(0, 7)}-01`
+}
+
+/**
+ * Último día del mes que contiene `fechaISO`. Se calcula como "día 0 del mes
+ * siguiente", que es como Date resuelve 28/29/30/31 y el año bisiesto sin
+ * que haya que codificar ninguna tabla de longitudes de mes.
+ */
+export function ultimoDiaDeMes(fechaISO: string): string {
+  const [anio, mes] = fechaISO.split('-').map(Number)
+  return deEpocaUTC(Date.UTC(anio, mes, 0))
+}
+
+export function primerDiaDeAnio(fechaISO: string): string {
+  return `${fechaISO.slice(0, 4)}-01-01`
+}
+
+export function ultimoDiaDeAnio(fechaISO: string): string {
+  return `${fechaISO.slice(0, 4)}-12-31`
+}
+
+/** Suma meses conservando el "fin de mes": 31 ene + 1 mes → 28/29 feb. */
+export function sumarMeses(fechaISO: string, meses: number): string {
+  const [anio, mes, dia] = fechaISO.split('-').map(Number)
+  const objetivo = Date.UTC(anio, mes - 1 + meses, 1)
+  const d = new Date(objetivo)
+  const ultimoDelObjetivo = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+  return deEpocaUTC(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), Math.min(dia, ultimoDelObjetivo)))
+}
