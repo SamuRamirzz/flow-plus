@@ -312,6 +312,16 @@ function construirInstruccionSistema(
     '- tipo "modificar_bloque": cuando el usuario pide cambiar un bloque de horario que YA EXISTE (hora, día o materia — ej. "mueve mi clase de Inglés a las 9", "cambia mi ingreso a las 6:30", "el descanso de la tarde ahora es a las 4"). indiceObjetivo (o indicesCandidatos si más de uno podría ser, ej. "Matemáticas" aparece lunes y miércoles) identifica el bloque dentro de la lista de BLOQUES DE HORARIO. Pon en materia/diaSemanaBloque/horaInicioBloque/horaFinBloque SOLO los campos que cambian (el resto en su centinela "" o -1) — nunca cambies tipoBloque acá salvo que el usuario lo pida explícitamente.',
     '- tipo "borrar_bloque": cuando el usuario pide quitar un bloque de horario que YA EXISTE (ej. "quita mi clase de Historia de los viernes", "borra mi descanso de la tarde"). indiceObjetivo (o indicesCandidatos) identifica el bloque igual que "modificar_bloque". materia/diaSemanaBloque/horaInicioBloque/horaFinBloque van todos vacíos — borrar no necesita cambios.',
     'Nunca inventes un índice que no esté en la lista correspondiente. Ante la duda entre "ambiguo" y adivinar, usa "ambiguo". Lo mismo aplica a "modificar_bloque"/"borrar_bloque": si más de un bloque podría ser el referido, usa indicesCandidatos en vez de adivinar uno.',
+    // ── Bloques de presentación (Sprint Rediseño /ai) ──────────────────────
+    'El campo "bloques" es APARTE de "operaciones": sirve para PRESENTAR una respuesta con estructura, cuando el contenido lo amerita. La mayoría de las veces va vacío ([]) y basta con "mensaje".',
+    'NUNCA uses markdown (**negrita**, ##, viñetas con - o *) dentro de "mensaje" ni dentro de ningún texto de un bloque: se mostraría literal, con los asteriscos a la vista. Si querés estructura, para eso están los bloques.',
+    'Cuándo usar cada tipo de bloque:',
+    '- Si el usuario pide una COMPARACIÓN o una ENUMERACIÓN donde cada entrada tiene su propio detalle (materias duplicadas, tareas agrupadas por materia, clases por día), usa "lista_detallada": el título es el nombre de la entrada y el detalle son sus líneas. Ejemplo real — pregunta "¿qué materias tengo duplicadas?", respuesta: mensaje "Encontré 3 materias con bloques repetidos:" y un bloque lista_detallada con itemsDetallados [{titulo:"BIOLOGÍA", detalle:["Lunes 6:30 – 7:29","Martes 11:40 – 12:20"]}, {titulo:"INGLÉS", detalle:["Lunes 8:20 – 9:14","Jueves 6:30 – 7:29"]}].',
+    '- Si son varios ítems que comparten los MISMOS atributos y se leen mejor en columnas, usa "tabla". Ejemplo — "¿cuántas tareas tengo por materia?": columnas ["Materia","Pendientes","Vencidas"] y una fila por materia.',
+    '- Si son los datos de UNA sola cosa (una tarea, un bloque de horario), usa "renglones". Ejemplo — "¿cuándo vence mi tarea de Física?": pares [{etiqueta:"Materia",valor:"Física"},{etiqueta:"Vence",valor:"mañana, 14 de agosto"},{etiqueta:"Prioridad",valor:"Alta"}].',
+    '- Si es una enumeración simple SIN detalle por entrada, usa "lista".',
+    '- Para una respuesta conversacional normal (un saludo, una confirmación, una frase), NO uses bloques: deja "bloques" vacío y responde en "mensaje".',
+    'Si usas bloques, "mensaje" debe ser solo una frase corta de introducción (o vacío) — nunca repitas en "mensaje" el mismo contenido que ya pusiste en los bloques.',
     'Responde únicamente con el JSON solicitado.',
   ].join('\n')
 }
@@ -424,6 +434,7 @@ class TaskManagementAgentImpl implements AIAgent<TaskManagementAgentOutput> {
       originalText: text,
       tipoRespuesta: parsed.data.tipoRespuesta,
       mensaje: parsed.data.mensaje,
+      bloques: parsed.data.bloques,
       operaciones,
       notasParaCrear,
       operacionesNotaExistente,

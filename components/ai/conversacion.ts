@@ -1,6 +1,7 @@
 import type { Materia } from '@/lib/types'
 import type { ConversationTurnInput } from '@/lib/ai/providers/gemini'
 import type { OperacionTarea, TaskManagementAgentOutput } from '@/lib/ai/agents/taskManagement'
+import type { BloqueRespuesta } from '@/lib/ai/agents/taskManagement/types'
 import { MATERIA_NUEVA } from '@/components/ui/MateriaPicker'
 import { resumirOperaciones } from './overlayLogic'
 import type { OperacionEditable } from './OperacionRow'
@@ -25,6 +26,13 @@ export type TurnoIA = {
   mensaje: string | null
   /** Solo si tipoRespuesta === 'operaciones' — resumirOperaciones() del resultado. */
   resumen: string | null
+  /**
+   * Presentación estructurada de la respuesta (Sprint Rediseño /ai). Vacío en
+   * la mayoría de turnos: es para cuando el contenido amerita una lista, una
+   * tabla o una ficha en vez de un párrafo. Es ORTOGONAL a `tipoRespuesta`
+   * — una respuesta con operaciones también puede traer bloques.
+   */
+  bloques: BloqueRespuesta[]
   operaciones: OperacionEditable[]
   aplicando: boolean
   aplicadoOk: boolean
@@ -103,25 +111,52 @@ function operacionesAEditable(ops: OperacionTarea[], materias: Materia[], textoO
 // TurnoIA 'error' directamente en el sitio de la llamada, es un objeto
 // literal de 3 campos que no amerita su propia función ni test.
 export function construirTurnoIA(id: string, output: TaskManagementAgentOutput, materias: Materia[], textoOrigen = ''): TurnoIA {
+  // Sprint Rediseño /ai — los bloques viajan en las 3 ramas. Son
+  // PRESENTACIÓN, no un tipo de respuesta: una respuesta con operaciones
+  // también puede traer una tabla explicando lo que hizo.
+  const bloques = output.bloques ?? []
+
   if (output.tipoRespuesta === 'conversacional') {
     return {
       rol: 'ia',
       id,
       tipoRespuesta: 'conversacional',
-      mensaje: output.mensaje ?? 'Puedo ayudarte a gestionar tus tareas — cuéntame qué quieres crear, cambiar o borrar.',
+      // Con bloques, `mensaje` puede venir vacío a propósito (el prompt le
+      // pide al modelo no repetir el contenido): el respaldo genérico solo
+      // aplica si NO hay nada que mostrar, ni mensaje ni bloques.
+      mensaje: output.mensaje ?? (bloques.length > 0 ? null : 'Puedo ayudarte a gestionar tus tareas — cuéntame qué quieres crear, cambiar o borrar.'),
       resumen: null,
+      bloques,
       operaciones: [],
       aplicando: false,
       aplicadoOk: false,
     }
   }
   if (output.operaciones.length === 0) {
+    // Con bloques presentes esto NO es un error: el modelo respondió con una
+    // presentación estructurada (una comparación, una ficha) sin proponer
+    // ninguna operación. Sin esta rama, una respuesta correcta se mostraría
+    // con estilo de error.
+    if (bloques.length > 0) {
+      return {
+        rol: 'ia',
+        id,
+        tipoRespuesta: 'conversacional',
+        mensaje: output.mensaje,
+        resumen: null,
+        bloques,
+        operaciones: [],
+        aplicando: false,
+        aplicadoOk: false,
+      }
+    }
     return {
       rol: 'ia',
       id,
       tipoRespuesta: 'error',
       mensaje: 'No entendí qué querías hacer con tus tareas — intenta ser más específico.',
       resumen: null,
+      bloques: [],
       operaciones: [],
       aplicando: false,
       aplicadoOk: false,
@@ -133,6 +168,7 @@ export function construirTurnoIA(id: string, output: TaskManagementAgentOutput, 
     tipoRespuesta: 'operaciones',
     mensaje: null,
     resumen: resumirOperaciones(output.operaciones),
+    bloques,
     operaciones: operacionesAEditable(output.operaciones, materias, textoOrigen),
     aplicando: false,
     aplicadoOk: false,

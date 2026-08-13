@@ -223,10 +223,30 @@ export type OperacionBloqueExistenteResuelta =
   | { id: string; accion: 'modificar' | 'borrar'; estado: 'ambiguo'; cambios?: CambiosBloqueIA; candidatos: BloqueHorarioContexto[] }
   | { id: string; accion: 'modificar' | 'borrar'; estado: 'sin_coincidencias' }
 
+// Sprint Rediseño /ai — Parte A. Presentación estructurada de una respuesta
+// de la IA, para que una comparación se vea como una lista y no como una
+// oración larga con guiones.
+//
+// Es una unión DISCRIMINADA aunque el schema JSON mande todas las
+// propiedades siempre (con centinelas): el parser traduce esa forma plana a
+// esta, así que el cliente solo ve el miembro que corresponde y TypeScript
+// hace imposible leer `columnas` de un bloque de tipo 'lista'.
+export type BloqueRespuesta =
+  | { tipo: 'texto'; contenido: string }
+  | { tipo: 'lista'; items: string[] }
+  | { tipo: 'lista_detallada'; items: { titulo: string; detalle: string[] }[] }
+  | { tipo: 'tabla'; columnas: string[]; filas: string[][] }
+  | { tipo: 'renglones'; pares: { etiqueta: string; valor: string }[] }
+
 export type TaskManagementAgentOutput = {
   originalText: string
   tipoRespuesta: TipoRespuestaGestion
   mensaje: string | null
+  /**
+   * Presentación estructurada, cuando el contenido lo amerita. Vacío en la
+   * mayoría de respuestas — el camino normal sigue siendo `mensaje`.
+   */
+  bloques: BloqueRespuesta[]
   operaciones: OperacionTarea[]
   // Fase 4.2 — refleja EXACTAMENTE las operaciones `crear_nota` que el
   // modelo propuso en este turno, ya resueltas contra tareasExistentes.

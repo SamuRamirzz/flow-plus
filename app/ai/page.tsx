@@ -19,6 +19,7 @@ import { useAdjuntosPendientes, type AdjuntoPendiente } from '@/lib/ai/useAdjunt
 import AdjuntoBoton from '@/components/ai/AdjuntoBoton'
 import DictadoBoton from '@/components/ai/DictadoBoton'
 import AdjuntosPendientesChips from '@/components/ai/AdjuntosPendientesChips'
+import DestelloEntrada from '@/components/ai/DestelloEntrada'
 import AIImmersiveOverlay from '@/components/ai/AIImmersiveOverlay'
 import TaskListPanel from '@/components/ai/TaskListPanel'
 import { overlayFaseReducer, FASE1_EXPANSION_MS, FASE2_VACIO_MS, RADIO_PILDORA, type RectOrigen } from '@/components/ai/overlayLogic'
@@ -482,7 +483,12 @@ export default function AIPage() {
   const escribirDeshabilitado = fase !== 'idle'
 
   return (
-    <main
+    <>
+      {/* Sprint Rediseño /ai — Parte D. Fuera del <main> a propósito: es una
+          capa de pantalla completa, y dentro quedaría recortada por el
+          `overflow-x-hidden` y el ancho máximo del contenido. */}
+      <DestelloEntrada />
+      <main
       // Ajuste (4ta vuelta) — un paso más ancho en los dos estados
       // (antes max-w-3xl/max-w-6xl) para darle al h1 más espacio real y
       // que envuelva menos — ver el comentario junto a FRASES_BIENVENIDA:
@@ -731,6 +737,7 @@ export default function AIPage() {
           />
         )}
       </AnimatePresence>
-    </main>
+      </main>
+    </>
   )
 }

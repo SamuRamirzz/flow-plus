@@ -1,6 +1,6 @@
 import type { JSONSchema, OutputParser, ParseResult } from '@/lib/ai/types'
 import type { HomeworkPriority, HomeworkTaskType } from '../homework/types'
-import type { TipoRespuestaGestion } from './types'
+import type { BloqueRespuesta, TipoRespuestaGestion } from './types'
 
 const PRIORIDADES: HomeworkPriority[] = ['baja', 'media', 'alta']
 const TIPOS: HomeworkTaskType[] = ['ejercicios', 'examen', 'ensayo', 'lectura', 'proyecto', 'otro']
@@ -43,6 +43,11 @@ const ACCIONES_ORIGINALES = ['modificar', 'borrar'] as const
 // quinto miembro que significaría exactamente lo mismo.
 const OBJETIVOS_TIPO = ['tarea', 'bloque_horario', 'archivo', 'nota'] as const
 const TIPOS_BLOQUE_HORARIO = ['clase', 'ingreso', 'salida', 'descanso'] as const
+
+// Sprint Rediseño /ai — los 5 tipos de bloque de PRESENTACIÓN (no confundir
+// con TIPOS_BLOQUE_HORARIO, que son bloques del horario del usuario).
+const TIPOS_BLOQUE = ['texto', 'lista', 'lista_detallada', 'tabla', 'renglones'] as const
+type TipoBloqueRaw = (typeof TIPOS_BLOQUE)[number]
 
 // Máximo de operaciones por respuesta — tope defensivo, ver comentario en
 // el parser (`.slice(0, MAX_OPERACIONES)`) sobre por qué existe.
@@ -109,6 +114,78 @@ export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
     mensaje: {
       type: 'string',
       description: 'Solo si tipoRespuesta es "conversacional": respuesta breve y natural. Cadena vacía en cualquier otro caso.',
+    },
+    // Sprint Rediseño /ai — Parte A. Va al NIVEL RAÍZ, deliberadamente NO
+    // dentro de cada `operaciones[]`: ese objeto ya tiene 18 propiedades
+    // requeridas y este mismo archivo documenta (ver el bloque de comentario
+    // de arriba) que el modo de fallo real de Gemini 3.5 Flash-Lite es la
+    // degeneración cuando el item de un array crece. Un array hermano, con
+    // items pequeños y su propio discriminante, no toca ese riesgo.
+    //
+    // Los 5 tipos comparten TODAS las propiedades (mismo criterio "todo
+    // required con centinela" del resto del schema): un bloque de tipo
+    // 'lista' manda `items` lleno y el resto vacío. Es más verboso para el
+    // modelo que una unión real, pero es exactamente la forma que este
+    // proyecto ya verificó que Gemini respeta sin degenerar.
+    bloques: {
+      type: 'array',
+      description:
+        'Presentación ESTRUCTURADA de la respuesta, cuando el contenido lo amerita (comparaciones, enumeraciones, fichas de datos). Vacío ([]) para respuestas conversacionales normales, que son la mayoría. Si lo usas, NO repitas lo mismo en "mensaje": los bloques reemplazan al texto plano.',
+      items: {
+        type: 'object',
+        properties: {
+          tipo: {
+            type: 'string',
+            enum: TIPOS_BLOQUE,
+            description:
+              '"texto": un párrafo normal (usa `contenido`). "lista": enumeración simple sin detalle (usa `items`). "lista_detallada": cada entrada tiene un título corto y una o más líneas de detalle — ÚSALO para comparaciones y agrupaciones, ej. materias duplicadas donde el título es la materia y el detalle son sus horarios (usa `itemsDetallados`). "tabla": varios ítems que comparten los mismos atributos (usa `columnas` y `filas`). "renglones": ficha de pares etiqueta-valor, ej. los datos de UNA tarea (usa `pares`).',
+          },
+          contenido: {
+            type: 'string',
+            description: 'Solo si tipo es "texto": el párrafo. Cadena vacía en cualquier otro caso.',
+          },
+          items: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Solo si tipo es "lista": las entradas, una por elemento. Vacío en cualquier otro caso.',
+          },
+          itemsDetallados: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                titulo: { type: 'string', description: 'Etiqueta corta de la entrada (ej. el nombre de la materia).' },
+                detalle: { type: 'array', items: { type: 'string' }, description: 'Una o más líneas de detalle de esa entrada.' },
+              },
+              required: ['titulo', 'detalle'],
+            },
+            description: 'Solo si tipo es "lista_detallada". Vacío en cualquier otro caso.',
+          },
+          columnas: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Solo si tipo es "tabla": los encabezados. Vacío en cualquier otro caso.',
+          },
+          filas: {
+            type: 'array',
+            items: { type: 'array', items: { type: 'string' } },
+            description: 'Solo si tipo es "tabla": una entrada por fila, con tantos valores como columnas. Vacío en cualquier otro caso.',
+          },
+          pares: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                etiqueta: { type: 'string' },
+                valor: { type: 'string' },
+              },
+              required: ['etiqueta', 'valor'],
+            },
+            description: 'Solo si tipo es "renglones". Vacío en cualquier otro caso.',
+          },
+        },
+        required: ['tipo', 'contenido', 'items', 'itemsDetallados', 'columnas', 'filas', 'pares'],
+      },
     },
     operaciones: {
       type: 'array',
@@ -234,7 +311,7 @@ export const TASK_MANAGEMENT_OUTPUT_SCHEMA: JSONSchema = {
       },
     },
   },
-  required: ['tipoRespuesta', 'mensaje', 'operaciones'],
+  required: ['tipoRespuesta', 'mensaje', 'operaciones', 'bloques'],
 }
 
 // --- Forma "cruda" que produce el parser: solo valida tipos/forma, no
@@ -348,12 +425,107 @@ export type TaskManagementParsedOutput = {
   tipoRespuesta: TipoRespuestaGestion
   mensaje: string | null
   operaciones: OperacionRaw[]
+  bloques: BloqueRespuesta[]
 }
 
 function normalizar(valor: unknown): string | null {
   if (typeof valor !== 'string') return null
   const limpio = valor.trim()
   return limpio.length > 0 ? limpio : null
+}
+
+/** Strings no vacíos de un array desconocido. Nunca lanza. */
+function stringsDe(valor: unknown): string[] {
+  if (!Array.isArray(valor)) return []
+  return valor.map((v) => normalizar(v)).filter((v): v is string => v !== null)
+}
+
+// Tope defensivo por bloque, mismo criterio que MAX_OPERACIONES: un modelo
+// desviado podría devolver una tabla de miles de filas y reventar el render.
+const MAX_ELEMENTOS_BLOQUE = 50
+const MAX_BLOQUES = 8
+
+/**
+ * Traduce la forma PLANA del schema (todas las propiedades siempre
+ * presentes, con centinelas) a la unión discriminada `BloqueRespuesta`.
+ *
+ * Nunca lanza y nunca devuelve un bloque a medias: un bloque cuyo contenido
+ * útil venga vacío se DESCARTA entero (mismo criterio que `crear_nota` sin
+ * `contenidoNota`). Es lo que hace seguro que el cliente pinte lo que reciba
+ * sin volver a validar.
+ */
+function bloquesDesde(valor: unknown): BloqueRespuesta[] {
+  if (!Array.isArray(valor)) return []
+  const bloques: BloqueRespuesta[] = []
+
+  for (const bruto of valor.slice(0, MAX_BLOQUES)) {
+    if (typeof bruto !== 'object' || bruto === null) continue
+    const b = bruto as Record<string, unknown>
+    const tipo = TIPOS_BLOQUE.includes(b.tipo as TipoBloqueRaw) ? (b.tipo as TipoBloqueRaw) : null
+    if (!tipo) continue
+
+    if (tipo === 'texto') {
+      const contenido = normalizar(b.contenido)
+      if (contenido) bloques.push({ tipo: 'texto', contenido })
+      continue
+    }
+
+    if (tipo === 'lista') {
+      const items = stringsDe(b.items).slice(0, MAX_ELEMENTOS_BLOQUE)
+      if (items.length > 0) bloques.push({ tipo: 'lista', items })
+      continue
+    }
+
+    if (tipo === 'lista_detallada') {
+      const crudos = Array.isArray(b.itemsDetallados) ? b.itemsDetallados : []
+      const items = crudos
+        .slice(0, MAX_ELEMENTOS_BLOQUE)
+        .map((i) => {
+          if (typeof i !== 'object' || i === null) return null
+          const item = i as Record<string, unknown>
+          const titulo = normalizar(item.titulo)
+          if (!titulo) return null
+          return { titulo, detalle: stringsDe(item.detalle).slice(0, MAX_ELEMENTOS_BLOQUE) }
+        })
+        .filter((i): i is { titulo: string; detalle: string[] } => i !== null)
+      if (items.length > 0) bloques.push({ tipo: 'lista_detallada', items })
+      continue
+    }
+
+    if (tipo === 'tabla') {
+      const columnas = stringsDe(b.columnas).slice(0, MAX_ELEMENTOS_BLOQUE)
+      const filasCrudas = Array.isArray(b.filas) ? b.filas : []
+      // Cada fila se recorta o se rellena a la longitud de `columnas`: una
+      // fila con más celdas que encabezados desalinearía la tabla entera, y
+      // una con menos dejaría huecos sin celda que rompen el grid.
+      const filas = filasCrudas
+        .slice(0, MAX_ELEMENTOS_BLOQUE)
+        .map((f) => {
+          if (!Array.isArray(f)) return null
+          const celdas = f.map((c) => (typeof c === 'string' ? c.trim() : ''))
+          return Array.from({ length: columnas.length }, (_, i) => celdas[i] ?? '')
+        })
+        .filter((f): f is string[] => f !== null)
+      if (columnas.length > 0 && filas.length > 0) bloques.push({ tipo: 'tabla', columnas, filas })
+      continue
+    }
+
+    const paresCrudos = Array.isArray(b.pares) ? b.pares : []
+    const pares = paresCrudos
+      .slice(0, MAX_ELEMENTOS_BLOQUE)
+      .map((p) => {
+        if (typeof p !== 'object' || p === null) return null
+        const par = p as Record<string, unknown>
+        const etiqueta = normalizar(par.etiqueta)
+        const valorPar = normalizar(par.valor)
+        if (!etiqueta || !valorPar) return null
+        return { etiqueta, valor: valorPar }
+      })
+      .filter((p): p is { etiqueta: string; valor: string } => p !== null)
+    if (pares.length > 0) bloques.push({ tipo: 'renglones', pares })
+  }
+
+  return bloques
 }
 
 function clamp01(valor: unknown): number {
@@ -573,6 +745,6 @@ export class TaskManagementOutputParser implements OutputParser<TaskManagementPa
       ? (tipoDeclarado as TipoRespuestaGestion)
       : 'operaciones'
 
-    return { ok: true, data: { tipoRespuesta, mensaje: normalizar(obj.mensaje), operaciones } }
+    return { ok: true, data: { tipoRespuesta, mensaje: normalizar(obj.mensaje), operaciones, bloques: bloquesDesde(obj.bloques) } }
   }
 }

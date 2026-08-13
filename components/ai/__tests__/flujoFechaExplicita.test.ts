@@ -35,6 +35,7 @@ describe('flujo completo: fecha explícita del usuario sobrevive de punta a punt
       originalText: 'Examen de matemáticas el viernes',
       tipoRespuesta: 'operaciones',
       mensaje: null,
+      bloques: [],
       operaciones: [
         { id: 'op1', tipo: 'crear', titulo: 'Examen de matemáticas', materia: 'Matemáticas', fecha: '2026-07-31', prioridad: 'media', tipoTarea: 'examen', confidence: 0.95 },
       ],
@@ -69,6 +70,7 @@ describe('flujo completo: fecha explícita del usuario sobrevive de punta a punt
       originalText: 'Tengo examen de matemáticas',
       tipoRespuesta: 'operaciones',
       mensaje: null,
+      bloques: [],
       operaciones: [{ id: 'op2', tipo: 'crear', titulo: 'Examen de matemáticas', materia: 'Matemáticas', fecha: null, prioridad: 'media', tipoTarea: 'examen', confidence: 0.9 }],
     }
     const turno = construirTurnoIA('t2', output, materias)

@@ -9,11 +9,11 @@ function turnoUsuario(texto: string): Turno {
 }
 
 function turnoIAOperaciones(resumen: string): Turno {
-  return { rol: 'ia', id: 'ia-' + resumen.slice(0, 4), tipoRespuesta: 'operaciones', mensaje: null, resumen, operaciones: [], aplicando: false, aplicadoOk: false }
+  return { rol: 'ia', id: 'ia-' + resumen.slice(0, 4), tipoRespuesta: 'operaciones', mensaje: null, resumen, bloques: [], operaciones: [], aplicando: false, aplicadoOk: false }
 }
 
 function turnoIAConversacional(mensaje: string): Turno {
-  return { rol: 'ia', id: 'ia-' + mensaje.slice(0, 4), tipoRespuesta: 'conversacional', mensaje, resumen: null, operaciones: [], aplicando: false, aplicadoOk: false }
+  return { rol: 'ia', id: 'ia-' + mensaje.slice(0, 4), tipoRespuesta: 'conversacional', mensaje, resumen: null, bloques: [], operaciones: [], aplicando: false, aplicadoOk: false }
 }
 
 describe('historialParaAgente', () => {
@@ -44,13 +44,13 @@ describe('historialParaAgente', () => {
   })
 
   it('omite un turno de IA sin texto útil (resumen y mensaje ambos null) en vez de mandar un turno vacío', () => {
-    const turnoVacio: Turno = { rol: 'ia', id: 'x', tipoRespuesta: 'operaciones', mensaje: null, resumen: null, operaciones: [], aplicando: false, aplicadoOk: false }
+    const turnoVacio: Turno = { rol: 'ia', id: 'x', tipoRespuesta: 'operaciones', mensaje: null, resumen: null, bloques: [], operaciones: [], aplicando: false, aplicadoOk: false }
     const h = historialParaAgente([turnoUsuario('algo'), turnoVacio])
     expect(h).toEqual([{ rol: 'usuario', texto: 'algo' }])
   })
 
   it('omite un turno de IA de error — no aporta contexto útil al modelo', () => {
-    const turnoError: Turno = { rol: 'ia', id: 'e1', tipoRespuesta: 'error', mensaje: 'No entendí qué querías hacer.', resumen: null, operaciones: [], aplicando: false, aplicadoOk: false }
+    const turnoError: Turno = { rol: 'ia', id: 'e1', tipoRespuesta: 'error', mensaje: 'No entendí qué querías hacer.', resumen: null, bloques: [], operaciones: [], aplicando: false, aplicadoOk: false }
     const h = historialParaAgente([turnoUsuario('algo raro'), turnoError])
     expect(h).toEqual([{ rol: 'usuario', texto: 'algo raro' }])
   })
@@ -76,7 +76,7 @@ describe('construirTurnoIA', () => {
   const materias: Materia[] = [{ id: 'mat-1', nombre: 'Historia', color: '#fff', icono: 'Landmark' }]
 
   it('tipoRespuesta conversacional → turno conversacional con el mensaje del modelo', () => {
-    const output: TaskManagementAgentOutput = { originalText: 'hola', tipoRespuesta: 'conversacional', mensaje: '¡Hola!', operaciones: [] }
+    const output: TaskManagementAgentOutput = { originalText: 'hola', tipoRespuesta: 'conversacional', mensaje: '¡Hola!', bloques: [], operaciones: [] }
     const turno = construirTurnoIA('t1', output, materias)
     expect(turno.tipoRespuesta).toBe('conversacional')
     expect(turno.mensaje).toBe('¡Hola!')
@@ -84,7 +84,7 @@ describe('construirTurnoIA', () => {
   })
 
   it('operaciones vacío → turno de error con mensaje explicativo, no un turno "operaciones" vacío', () => {
-    const output: TaskManagementAgentOutput = { originalText: 'asdf', tipoRespuesta: 'operaciones', mensaje: null, operaciones: [] }
+    const output: TaskManagementAgentOutput = { originalText: 'asdf', tipoRespuesta: 'operaciones', mensaje: null, bloques: [], operaciones: [] }
     const turno = construirTurnoIA('t2', output, materias)
     expect(turno.tipoRespuesta).toBe('error')
     expect(turno.mensaje).toMatch(/no entendí/i)
@@ -95,6 +95,7 @@ describe('construirTurnoIA', () => {
       originalText: 'crea una tarea de historia',
       tipoRespuesta: 'operaciones',
       mensaje: null,
+      bloques: [],
       operaciones: [{ id: 'op1', tipo: 'crear', titulo: 'Leer capítulo 3', materia: 'Historia', fecha: '2026-08-01', prioridad: 'media', tipoTarea: 'lectura', confidence: 0.9 }],
     }
     const turno = construirTurnoIA('t3', output, materias)

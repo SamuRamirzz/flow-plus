@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence, useMotionValue, useTransform, type Variants } from 'motion/react'
-import { Loader2, Check, X, MessageCircle, Send } from 'lucide-react'
+import { Loader2, Check, X, MessageCircle, Send, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { Materia, Tarea } from '@/lib/types'
 import type { BloqueHorario } from '@/lib/horario/tipos'
 import type { TareaContexto } from '@/lib/ai/agents/taskManagement'
@@ -13,12 +13,15 @@ import { createId } from '@/lib/ai/utils'
 import { procesarAdjunto } from '@/lib/ai/procesarAdjunto'
 import { concatenarTextoConAdjuntos } from '@/lib/ai/adjuntos'
 import { useAdjuntosPendientes, type AdjuntoPendiente } from '@/lib/ai/useAdjuntosPendientes'
+import { usePanelColapsado } from '@/lib/ai/usePanelColapsado'
 import ResultTaskRow, { type TareaEditable } from '@/components/ai/ResultTaskRow'
 import OperacionRow, { type OperacionEditable } from '@/components/ai/OperacionRow'
 import AdjuntoBoton from '@/components/ai/AdjuntoBoton'
 import DictadoBoton from '@/components/ai/DictadoBoton'
 import AdjuntosPendientesChips from '@/components/ai/AdjuntosPendientesChips'
 import TaskListPanel from '@/components/ai/TaskListPanel'
+import BloquesRespuesta from '@/components/ai/bloques/BloquesRespuesta'
+import TextoRico from '@/components/ai/bloques/TextoRico'
 import AvisoDuplicadoMateria from '@/components/ui/AvisoDuplicadoMateria'
 import type { PosibleDuplicadoMateria } from '@/lib/ai/agents/calendar'
 import type { RegistroOperacion } from '@/components/ai/registroOperaciones'
@@ -104,6 +107,9 @@ export default function AIImmersiveOverlay({
   // primer mensaje como cualquier turno de seguimiento.
   const [turnos, setTurnos] = useState<Turno[]>([])
   const [enviando, setEnviando] = useState(false)
+  // Sprint Rediseño /ai — Parte B. Se recuerda entre sesiones (localStorage);
+  // ver el comentario de usePanelColapsado sobre por qué.
+  const [panelColapsado, setPanelColapsado] = usePanelColapsado()
   const [siguienteMensaje, setSiguienteMensaje] = useState('')
   // Sub-sprint 7.3.1 — archivos para el PRÓXIMO turno de seguimiento (los
   // del primer mensaje viajan como prop `adjuntosIniciales`, no por acá).
@@ -158,7 +164,7 @@ export default function AIImmersiveOverlay({
       const fallidos = procesados.filter((p) => !p.ok)
       if (fallidos.length > 0) {
         const mensaje = fallidos.map((f) => (f as { error: string }).error).join(' · ')
-        return { rol: 'ia', id: createId('turno'), tipoRespuesta: 'error', mensaje, resumen: null, operaciones: [], aplicando: false, aplicadoOk: false }
+        return { rol: 'ia', id: createId('turno'), tipoRespuesta: 'error', mensaje, resumen: null, bloques: [], operaciones: [], aplicando: false, aplicadoOk: false }
       }
 
       const rutasBinarias = procesados
@@ -181,7 +187,7 @@ export default function AIImmersiveOverlay({
       const idIA = createId('turno')
 
       if (!('status' in result)) {
-        return { rol: 'ia', id: idIA, tipoRespuesta: 'error', mensaje: result.error, resumen: null, operaciones: [], aplicando: false, aplicadoOk: false }
+        return { rol: 'ia', id: idIA, tipoRespuesta: 'error', mensaje: result.error, resumen: null, bloques: [], operaciones: [], aplicando: false, aplicadoOk: false }
       }
       if (result.status !== 'success' || !result.output) {
         return {
@@ -190,6 +196,7 @@ export default function AIImmersiveOverlay({
           tipoRespuesta: 'error',
           mensaje: result.error?.message ?? 'No se pudo analizar el texto',
           resumen: null,
+          bloques: [],
           operaciones: [],
           aplicando: false,
           aplicadoOk: false,
@@ -201,7 +208,7 @@ export default function AIImmersiveOverlay({
       // igual los ve (ver resolverCamposExamen, lib/server/examen.ts).
       return construirTurnoIA(idIA, result.output, materias, textoConAdjuntos)
     } catch {
-      return { rol: 'ia', id: createId('turno'), tipoRespuesta: 'error', mensaje: 'No se pudo conectar con el servidor.', resumen: null, operaciones: [], aplicando: false, aplicadoOk: false }
+      return { rol: 'ia', id: createId('turno'), tipoRespuesta: 'error', mensaje: 'No se pudo conectar con el servidor.', resumen: null, bloques: [], operaciones: [], aplicando: false, aplicadoOk: false }
     }
   }
 
@@ -226,7 +233,17 @@ export default function AIImmersiveOverlay({
       // Sub-sprint 7.3.1: si el usuario solo adjuntó archivos sin escribir
       // nada, el turno mostrado en pantalla no puede quedar en blanco.
       const textoTurno = mensajeInicial || nombresAdjuntos(adjuntosIniciales)
-      setTurnos((actuales) => [...actuales, { rol: 'usuario', id: createId('turno'), texto: textoTurno }])
+      // 🐛 Bug real encontrado en la verificación visual de este sprint: el
+      // turno del usuario aparecía DUPLICADO en pantalla. El comentario de
+      // arriba afirmaba que `activo` ya evitaba turnos duplicados — cierto
+      // para el turno de la IA (que se agrega DESPUÉS del await, ya
+      // protegido), pero este se agregaba ANTES, así que el segundo montaje
+      // de StrictMode lo insertaba igual. La guarda por id lo hace idempotente
+      // sin depender de cuántas veces corra el efecto.
+      const idTurnoInicial = createId('turno')
+      setTurnos((actuales) =>
+        actuales.some((t) => t.rol === 'usuario' && t.texto === textoTurno) ? actuales : [...actuales, { rol: 'usuario', id: idTurnoInicial, texto: textoTurno }]
+      )
       setEnviando(true)
       const turnoIA = await analizarMensaje(
         mensajeInicial,
@@ -349,7 +366,17 @@ export default function AIImmersiveOverlay({
   const radioMV = useTransform([anchoMV, altoMV], ([w, h]: number[]) => radioDeCaja(w, h, origen.height, viewport.h))
 
   const cajaCerrada = { x: origen.left, y: origen.top, width: origen.width, height: origen.height, backgroundColor: '#FF6B4D' }
-  const cajaAbierta = { x: 0, y: 0, width: viewport.w, height: viewport.h, backgroundColor: '#000000' }
+  // Sprint Rediseño /ai — Parte C. El fondo abierto era '#000000' OPACO, que
+  // tapaba por completo el DotField coral que ya vive en /ai (montado en el
+  // layout raíz, ver components/reactbits/DotFieldBackground.tsx).
+  //
+  // 0.94 + blur, no menos: con 0.82 (primer intento, corregido tras verlo en
+  // pantalla) se leía DEBAJO el contenido de la página — el h1 "¿Qué tienes
+  // en mente?" y los chips de ejemplo competían con la conversación. El
+  // `backdropFilter` es lo que hace el trabajo real: difumina lo que hay
+  // detrás, así que la grilla de puntos y su glow coral siguen presentes
+  // como textura, pero ningún texto de la página es legible a través.
+  const cajaAbierta = { x: 0, y: 0, width: viewport.w, height: viewport.h, backgroundColor: 'rgba(6, 7, 10, 0.94)' }
 
   if (typeof document === 'undefined') return null
 
@@ -359,7 +386,19 @@ export default function AIImmersiveOverlay({
       animate={cajaAbierta}
       exit={cajaCerrada}
       transition={{ ...CAJA_SPRING, backgroundColor: { duration: 0.45 } }}
-      style={{ position: 'fixed', top: 0, left: 0, overflow: 'hidden', width: anchoMV, height: altoMV, borderRadius: radioMV }}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        overflow: 'hidden',
+        width: anchoMV,
+        height: altoMV,
+        borderRadius: radioMV,
+        // Difumina el contenido de la página que queda detrás (ver el
+        // comentario de `cajaAbierta`): deja pasar la textura del DotField
+        // sin dejar legible ningún texto de debajo.
+        backdropFilter: 'blur(18px)',
+      }}
       className="z-[100]"
     >
       <motion.button
@@ -385,8 +424,33 @@ export default function AIImmersiveOverlay({
             className="overflow-y-auto"
           >
             <div className="w-full max-w-5xl mx-auto px-6 py-20 flex flex-col md:flex-row gap-10 md:gap-16">
-              <motion.div variants={columnaVariants} className="md:flex-1 min-w-0">
-                <p className="font-mono text-[11px] uppercase tracking-wide text-muted mb-4">Lo que entendí</p>
+              {/* Sprint Rediseño /ai — Parte B. La columna se desmonta al
+                  colapsar (AnimatePresence) en vez de quedarse con width:0:
+                  así el `md:flex-1` de la columna de Tareas se reparte todo
+                  el ancho solo, sin tener que tocar sus clases. */}
+              <AnimatePresence initial={false} mode="popLayout">
+                {!panelColapsado && (
+                  <motion.div
+                    key="panel-entendi"
+                    layout
+                    variants={columnaVariants}
+                    // `exit` propio: sale deslizándose hacia la izquierda
+                    // fuera de pantalla, que es el movimiento que pedía el
+                    // encargo (translateX negativo), no un fade.
+                    exit={{ opacity: 0, x: -60, filter: 'blur(8px)', transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] } }}
+                    className="md:flex-1 min-w-0 relative"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="font-mono text-[11px] uppercase tracking-wide text-muted">Lo que entendí</p>
+                      <button
+                        onClick={() => setPanelColapsado(true)}
+                        aria-label="Ocultar el panel de conversación"
+                        title="Ocultar este panel"
+                        className="text-muted hover:text-paper transition p-1 -mr-1 cursor-pointer"
+                      >
+                        <PanelLeftClose size={15} />
+                      </button>
+                    </div>
 
                 <div className="flex flex-col gap-5">
                   <AnimatePresence initial={false}>
@@ -471,9 +535,11 @@ export default function AIImmersiveOverlay({
                     </button>
                   </div>
                 </div>
-              </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-              <motion.div variants={columnaVariants} className="md:flex-1 flex flex-col gap-2.5 min-w-0">
+              <motion.div layout variants={columnaVariants} className="md:flex-1 flex flex-col gap-2.5 min-w-0">
                 <p className="font-mono text-[11px] uppercase tracking-wide text-muted mb-1.5">Tareas</p>
                 <TaskListPanel
                   tareas={tareasActuales}
@@ -484,6 +550,37 @@ export default function AIImmersiveOverlay({
                 />
               </motion.div>
             </div>
+
+            {/* Pestaña de reapertura. Fuera del contenedor con `max-w-5xl`
+                para poder pegarse al borde REAL de la pantalla, no al del
+                contenido centrado. Click (no drag): es lo bastante
+                intuitivo y no compite con el scroll vertical del overlay,
+                que en móvil sería el gesto en conflicto. */}
+            <AnimatePresence>
+              {panelColapsado && (
+                <motion.button
+                  key="pestana-panel"
+                  onClick={() => setPanelColapsado(false)}
+                  initial={{ opacity: 0, x: -40 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -40 }}
+                  transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+                  aria-label="Mostrar el panel de conversación"
+                  title="Mostrar la conversación"
+                  className="fixed left-0 top-1/2 -translate-y-1/2 z-[101] flex flex-col items-center gap-2 py-5 pl-2 pr-2.5 rounded-r-2xl bg-panel-glass backdrop-blur-xl text-muted hover:text-paper transition cursor-pointer"
+                >
+                  <PanelLeftOpen size={16} className="text-coral" />
+                  {/* Texto rotado: identifica el panel oculto sin robar
+                      ancho a la conversación. */}
+                  <span
+                    className="font-mono text-[10px] uppercase tracking-wide whitespace-nowrap"
+                    style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                  >
+                    Lo que entendí
+                  </span>
+                </motion.button>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>
@@ -530,13 +627,22 @@ function TurnoIACard({
       {turno.tipoRespuesta === 'error' ? (
         <p className="text-danger text-sm leading-relaxed">{turno.mensaje}</p>
       ) : turno.tipoRespuesta === 'conversacional' ? (
-        <p className="flex items-start gap-2.5 text-paper/80 text-sm leading-relaxed">
+        // Sprint Rediseño /ai — el <p> plano se cambió por TextoRico (que
+        // interpreta el markdown que se le escape al modelo en vez de
+        // mostrar los asteriscos) + los bloques estructurados debajo.
+        <div className="flex items-start gap-2.5 text-paper/80 text-sm leading-relaxed">
           <MessageCircle size={16} className="text-coral/70 mt-0.5 flex-shrink-0" />
-          <span>{turno.mensaje}</span>
-        </p>
+          <div className="min-w-0 flex-1">
+            {turno.mensaje && <TextoRico texto={turno.mensaje} />}
+            <BloquesRespuesta bloques={turno.bloques} />
+          </div>
+        </div>
       ) : (
         <>
           <p className="text-paper text-sm leading-relaxed">{turno.resumen}</p>
+          {/* Los bloques son ortogonales a las operaciones: la IA puede
+              explicar con una tabla lo que además va a aplicar. */}
+          <BloquesRespuesta bloques={turno.bloques} />
           <div className="flex flex-col gap-2.5">
             <AnimatePresence initial={false}>
               {turno.operaciones.map((op, i) => (
