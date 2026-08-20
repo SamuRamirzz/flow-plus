@@ -2,6 +2,7 @@ import { supabaseServer } from '@/lib/server/supabaseServer'
 import { hoyEnZona, horaEnZona, ZONA_HORARIA_POR_DEFECTO } from '@/lib/ai/context/fecha'
 import { calcularVentanaRecordatorio } from '@/lib/ai/agents/reminder'
 import { decidirNotificar, type CandidatoNotificacion } from '@/lib/ai/agents/notification'
+import { crearNotificacion } from '@/lib/server/notificaciones'
 import { ok, errorJson } from '@/lib/server/respuestas'
 
 // Vercel Cron invoca este endpoint una vez al día (ver vercel.json, "0 13
@@ -37,6 +38,20 @@ type ResultadoUsuario =
   | { userId: string; procesado: false; motivo: 'no_molestar'; hoy: string }
   | { userId: string; procesado: true; hoy: string; candidatos: number; notificadas: number }
 
+// Sprint 1/3 (B.2/B.3) — texto de la notificación general a partir de
+// cuántos días faltan/pasaron. `diasRestantes` negativo = vencida; el mismo
+// signo que ya usa `diasEntre`/textoRelativo en NotificationBell.tsx, acá
+// reescrito en servidor porque es donde se crea la fila.
+function tituloNotificacionTarea(titulo: string, diasRestantes: number): string {
+  if (diasRestantes < 0) {
+    const dias = Math.abs(diasRestantes)
+    return `"${titulo}" venció hace ${dias} día${dias === 1 ? '' : 's'}`
+  }
+  if (diasRestantes === 0) return `"${titulo}" vence hoy`
+  if (diasRestantes === 1) return `"${titulo}" vence mañana`
+  return `"${titulo}" vence en ${diasRestantes} días`
+}
+
 // Todo el trabajo de un usuario vive en esta función. La nota de secuencia del
 // Sprint 11 decía: "el día que exista una lista real de usuarios, el handler
 // pasa de `procesarUsuario(getUserId(), ahora)` a iterar esa lista llamando
@@ -70,19 +85,29 @@ async function procesarUsuario(userId: string, ahora: Date): Promise<ResultadoUs
 
   const { data: tareas, error: errorTareas } = await supabaseServer
     .from('tareas')
-    .select('id, fecha_entrega, prioridad, tipo')
+    .select('id, titulo, fecha_entrega, prioridad, tipo')
     .eq('user_id', userId)
     .eq('completada', false)
 
   if (errorTareas) throw new Error(errorTareas.message)
 
+  // `diasRestantes`/`titulo` no viajan en CandidatoNotificacion (tipo
+  // compartido con decidirNotificar, que no los necesita) — se guardan
+  // acá aparte, en un mapa por tareaId, para poder redactar la
+  // notificación general (B.2/B.3) después de que decidirNotificar
+  // resuelva qué queda aprobado esta corrida.
+  const detallePorTareaId = new Map<string, { titulo: string; diasRestantes: number }>()
+
   const candidatos: CandidatoNotificacion[] = (tareas ?? [])
     .map((t) => {
       const tarea = { id: t.id as string, fecha: t.fecha_entrega as string | null, prioridad: t.prioridad as string, tipo: t.tipo as string }
-      return { tarea, ventana: calcularVentanaRecordatorio(tarea, hoy) }
+      return { tarea, titulo: t.titulo as string, ventana: calcularVentanaRecordatorio(tarea, hoy) }
     })
     .filter(({ ventana }) => ventana.debeRecordar)
-    .map(({ tarea, ventana }) => ({ tareaId: tarea.id, urgencia: ventana.urgencia, tipo: tarea.tipo }))
+    .map(({ tarea, titulo, ventana }) => {
+      detallePorTareaId.set(tarea.id, { titulo, diasRestantes: ventana.diasRestantes ?? 0 })
+      return { tareaId: tarea.id, urgencia: ventana.urgencia, tipo: tarea.tipo }
+    })
 
   if (candidatos.length === 0) return { userId, procesado: true, hoy, candidatos: 0, notificadas: 0 }
 
@@ -120,6 +145,29 @@ async function procesarUsuario(userId: string, ahora: Date): Promise<ResultadoUs
     .upsert(filas, { onConflict: 'tarea_id,tipo,fecha', ignoreDuplicates: true })
 
   if (errorInsert) throw new Error(errorInsert.message)
+
+  // B.2/B.3 — mismo criterio de no-duplicar que ya provee
+  // notificaciones_enviadas: `decisiones` ya excluye lo que estaba en
+  // `yaEnviadas` (fila de HOY), así que una segunda corrida del cron el
+  // mismo día nunca vuelve a pasar por acá para la misma tarea. Un día
+  // distinto SÍ genera una fila nueva mientras la tarea siga en la
+  // ventana de recordatorio — es el mismo recordatorio escalando día a
+  // día que ya hacía notificaciones_enviadas, ahora también visible en la
+  // campana general. crearNotificacion nunca lanza (ver su propio
+  // comentario), así que un fallo acá no puede tumbar el resto del cron.
+  await Promise.all(
+    decisiones.map((d) => {
+      const detalle = detallePorTareaId.get(d.tareaId)
+      if (!detalle) return Promise.resolve()
+      return crearNotificacion({
+        userId,
+        tipo: detalle.diasRestantes < 0 ? 'tarea_vencida' : 'tarea_proxima',
+        titulo: tituloNotificacionTarea(detalle.titulo, detalle.diasRestantes),
+        entidadTipo: 'tarea',
+        entidadId: d.tareaId,
+      })
+    })
+  )
 
   return { userId, procesado: true, hoy, candidatos: candidatos.length, notificadas: filas.length }
 }

@@ -7,7 +7,7 @@ import type { EventoRealtime } from '@/lib/realtimeReconciliar'
 
 export type { EventoRealtime } from '@/lib/realtimeReconciliar'
 
-type Tabla = 'tareas' | 'horario' | 'materias'
+type Tabla = 'tareas' | 'horario' | 'materias' | 'notificaciones'
 
 // Sincronización en tiempo real entre dispositivos (Parte C del documento
 // de auditoría/realtime). Reemplaza el snippet propuesto en el encargo,
@@ -28,9 +28,12 @@ type Tabla = 'tareas' | 'horario' | 'materias'
 // 20260804000000_rls_propietario.sql, es la segunda capa, no la única).
 //
 // Requiere que la tabla esté en la publicación `supabase_realtime` — ver
-// 20260808000100_realtime_tareas_horario_materias.sql. Sin eso, el canal
-// se suscribe pero nunca recibe nada (no es un error silencioso: la
-// migración es la que lo habilita en el servidor).
+// 20260808000100_realtime_tareas_horario_materias.sql (tareas/horario/
+// materias) y 20260819000000_notificaciones.sql (notificaciones, que
+// además nace con REPLICA IDENTITY FULL desde el principio, sin repetir la
+// investigación que encontró ese bug para las 3 tablas originales). Sin
+// esto, el canal se suscribe pero nunca recibe nada (no es un error
+// silencioso: la migración es la que lo habilita en el servidor).
 export function useRealtimeSync<T extends { id: string }>(tabla: Tabla, activo: boolean, onEvento: (evento: EventoRealtime<T>) => void): void {
   // `onEvento` en un ref: evita que cada render del componente que llama
   // a este hook (que suele pasar una función nueva cada vez, ej. un

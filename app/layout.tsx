@@ -11,6 +11,7 @@ import LightRaysBackground from "@/components/reactbits/LightRaysBackground";
 import NavDock from "@/components/NavDock";
 import ThemeToggle from "@/components/ThemeToggle";
 import AppSidebar from "@/components/AppSidebar";
+import NotificationBell from "@/components/ui/NotificationBell";
 import AjustesModal from "@/components/ajustes/AjustesModal";
 import SincronizadorInvitado from "@/components/invitado/SincronizadorInvitado";
 import ModeTransition from "@/components/ModeTransition";
@@ -81,6 +82,15 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                   <AjustesModalProvider>
                     <LightRaysBackground />
                     <ThemeToggle />
+                    {/* Campana global — antes vivía solo dentro de
+                        AgendaHome (visible únicamente en /agenda); una
+                        notificación de horario o de una nota no tiene por
+                        qué esconderse detrás de esa pantalla en particular.
+                        Gateada por sesión real como el resto de la
+                        navegación: modo invitado no tiene backend de
+                        notificaciones (usa localStorage, sin fila de
+                        usuario que el cron pueda procesar). */}
+                    {haySesion && <NotificationBell />}
                     {/* Franja de "cuenta pendiente de eliminación" — se
                         renderiza siempre que hay sesión; se esconde sola si
                         no hay ninguna solicitud activa (ver el guard dentro

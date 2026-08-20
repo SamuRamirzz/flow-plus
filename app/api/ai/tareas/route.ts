@@ -16,6 +16,7 @@ import { requerirUsuario } from '@/lib/server/usuario'
 import { supabaseServer } from '@/lib/server/supabaseServer'
 import { esRutaDelUsuario } from '@/lib/server/rutaStorage'
 import { crearNota } from '@/lib/server/notas'
+import { crearNotificacion } from '@/lib/server/notificaciones'
 import { crearBloque, actualizarBloque, borrarBloque, hayColision } from '@/lib/server/horario'
 import { resolverOCrearMateria, listarMateriasCompletas } from '@/lib/server/materias'
 import { minutosDesdeHHMM, hhmmDesdeMinutos } from '@/lib/horario/horaMinutos'
@@ -205,8 +206,25 @@ async function procesarNotasParaCrear(
         archivoId: item.ancla.tipo === 'archivo' ? item.ancla.id : null,
         creadoPor: 'ia',
       })
-      if (resultado.ok) creadas++
-      else console.error('[api/ai/tareas] no se pudo crear la nota propuesta por la IA:', resultado.error)
+      if (resultado.ok) {
+        creadas++
+        // Sprint 1/3 (B.5) — entidadTipo/entidadId apuntan al ANCLA de la
+        // nota (tarea/bloque/archivo), no a la nota en sí: no existe una
+        // pantalla dedicada a "ver una nota suelta", así que un clic en
+        // esta notificación lleva a donde la nota realmente vive (Agenda,
+        // Horario o Archivos) — mismo criterio de navegación que el resto
+        // de entidad_tipo.
+        await crearNotificacion({
+          userId,
+          tipo: 'nota_agregada',
+          titulo: 'La IA agregó una nota',
+          cuerpo: item.contenidoNota,
+          entidadTipo: item.ancla.tipo,
+          entidadId: item.ancla.id,
+        })
+      } else {
+        console.error('[api/ai/tareas] no se pudo crear la nota propuesta por la IA:', resultado.error)
+      }
     } else if (item.estado === 'ambiguo') {
       ambiguas++
     } else {

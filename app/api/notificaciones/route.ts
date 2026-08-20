@@ -1,55 +1,43 @@
 import { requerirUsuario } from '@/lib/server/usuario'
 import { supabaseServer } from '@/lib/server/supabaseServer'
-import { hoyEnZona, ZONA_HORARIA_POR_DEFECTO } from '@/lib/ai/context/fecha'
-import { diasEntre } from '@/lib/horario/dias'
 import { ok, errorJson } from '@/lib/server/respuestas'
 
-// Lo que NotificationBell.tsx lee — reemplaza el cálculo en cada render
-// (new Date() + ventana fija en el cliente) por las filas que el cron de
-// hoy ya decidió y guardó en notificaciones_enviadas. `diasRestantes` se
-// recalcula acá (no se guarda en la tabla) porque es barato, puro, y
-// guardarlo lo dejaría desactualizado si el usuario abre la campana horas
-// después de que corrió el cron.
-export async function GET() {
+// Sprint 1/3 — lista de notificaciones del usuario (tabla `notificaciones`,
+// el modelo de producto general). Hasta este sprint este mismo endpoint leía
+// `notificaciones_enviadas` (el ledger interno de deduplicación del cron de
+// recordatorios, Sprint 11) — ese uso queda reemplazado por este, que es lo
+// que ahora consume la campana (components/ui/NotificationBell.tsx).
+// `notificaciones_enviadas` sigue existiendo e intacta, solo que ya no la
+// lee ningún cliente: el cron sigue escribiendo ahí para su propia
+// deduplicación (ver app/api/cron/recordatorios/route.ts).
+const LIMITE_DEFECTO = 20
+const LIMITE_MAXIMO = 100
+
+export async function GET(request: Request) {
   const auth = await requerirUsuario()
   if (!auth.ok) return auth.respuesta
   const userId = auth.userId
 
-  const { data: perfil } = await supabaseServer.from('perfil_academico').select('zona_horaria').eq('user_id', userId).maybeSingle()
+  const { searchParams } = new URL(request.url)
+  const leidaParam = searchParams.get('leida')
+  const limiteParam = Number(searchParams.get('limit'))
+  const offsetParam = Number(searchParams.get('offset'))
 
-  const zonaHoraria = (perfil?.zona_horaria as string | undefined) ?? ZONA_HORARIA_POR_DEFECTO
-  const hoy = hoyEnZona(new Date(), zonaHoraria)
+  const limite = Number.isFinite(limiteParam) && limiteParam > 0 ? Math.min(limiteParam, LIMITE_MAXIMO) : LIMITE_DEFECTO
+  const offset = Number.isFinite(offsetParam) && offsetParam >= 0 ? offsetParam : 0
 
-  const { data, error } = await supabaseServer
-    .from('notificaciones_enviadas')
-    .select('tarea_id, urgencia, agrupada, tareas(titulo, materia_id, fecha_entrega, prioridad)')
+  let query = supabaseServer
+    .from('notificaciones')
+    .select('*', { count: 'exact' })
     .eq('user_id', userId)
-    .eq('fecha', hoy)
+    .order('creada_en', { ascending: false })
+    .range(offset, offset + limite - 1)
 
+  if (leidaParam === 'true') query = query.eq('leida', true)
+  else if (leidaParam === 'false') query = query.eq('leida', false)
+
+  const { data, error, count } = await query
   if (error) return errorJson(error.message, 500)
 
-  type FilaTarea = { titulo: string; materia_id: string; fecha_entrega: string | null; prioridad: string }
-  const notificaciones = (data ?? [])
-    // El embed de PostgREST devuelve `tareas` como objeto cuando la FK es
-    // 1:1 (tarea_id → tareas.id) — pero si la tarea se borró después de
-    // generarse el recordatorio (on delete cascade la habría borrado
-    // también a ELLA, así que esto en la práctica no debería pasar; se
-    // filtra igual por si acaso, nunca confiar en que un join siempre
-    // resuelve).
-    .filter((n) => n.tareas !== null)
-    .map((n) => {
-      const tarea = n.tareas as unknown as FilaTarea
-      return {
-        tareaId: n.tarea_id as string,
-        titulo: tarea.titulo,
-        materiaId: tarea.materia_id,
-        prioridad: tarea.prioridad,
-        fechaEntrega: tarea.fecha_entrega,
-        diasRestantes: tarea.fecha_entrega ? diasEntre(hoy, tarea.fecha_entrega) : null,
-        urgencia: n.urgencia as 'baja' | 'media' | 'alta',
-        agrupada: n.agrupada as boolean,
-      }
-    })
-
-  return ok({ hoy, notificaciones })
+  return ok({ notificaciones: data ?? [], total: count ?? 0, limite, offset })
 }

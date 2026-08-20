@@ -12,7 +12,6 @@ import MiniCalendar from '@/components/MiniCalendar'
 import AgendaSummary from '@/components/AgendaSummary'
 import PremiumSelect from '@/components/ui/PremiumSelect'
 import DayDetailModal from '@/components/ui/DayDetailModal'
-import NotificationBell from '@/components/ui/NotificationBell'
 import DetalleTareaModal from '@/components/DetalleTareaModal'
 import { IconoMateria } from '@/components/ui/iconosMateria'
 import BannerInvitado from '@/components/invitado/BannerInvitado'
@@ -46,7 +45,7 @@ export default function AgendaHome() {
   // que sincronizar a mano. Tras cada mutación se llama a `recargar()`, que
   // el hook expone y que actualiza este mismo estado — mismo resultado que
   // el `cargarDatos()` de antes, sin mantener dos copias del mismo dato.
-  const { materias, tareas, horario, cargando, invitado, recargar } = useDatosAgenda()
+  const { materias, tareas, horario, invitado, recargar } = useDatosAgenda()
   const [estadoFiltro, setEstadoFiltro] = useState('todas')
   const [materiaFiltro, setMateriaFiltro] = useState('todas')
   const [diaModal, setDiaModal] = useState<string | null>(null)
@@ -159,14 +158,6 @@ export default function AgendaHome() {
           <p className="text-muted text-xs mb-2">
             {tareasHoy > 0 ? `Tienes ${tareasHoy} tarea${tareasHoy === 1 ? '' : 's'} pendiente${tareasHoy === 1 ? '' : 's'} para hoy.` : 'No tienes tareas para hoy 🎉'}
           </p>
-          {/* Sin sesión, /api/notificaciones 401 en silencio (campana vacía,
-              sin error visible) — pero seguiría disparando una llamada de
-              red inútil en cada carga. Se oculta entero para invitado.
-              `!cargando &&`: `invitado` empieza en `false` hasta que el
-              efecto de carga lo resuelve — sin este chequeo, la campana
-              montaría de todos modos en ese primer instante y dispararía
-              el fetch igual, antes de desmontarse. */}
-          {!cargando && !invitado && <NotificationBell materias={materias} />}
         </div>
       </header>
 

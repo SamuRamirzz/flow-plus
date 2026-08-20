@@ -1,0 +1,129 @@
+import { describe, it, expect } from 'vitest'
+import { extraerMensajesDeTexto, debeProcesarse, canalDelPayload, esChatDeGrupo, normalizarNumero } from '../whapi'
+
+// Payload real documentado por Whapi (support.whapi.cloud, "Incoming
+// message"), con el número cambiado.
+const PAYLOAD_TEXTO = {
+  messages: [
+    {
+      id: 'p.w30M7fgwWD4XwHu.g4CA-gBgTwl0rVw',
+      from_me: false,
+      type: 'text',
+      chat_id: '573001112233@s.whatsapp.net',
+      timestamp: 1712995245,
+      source: 'mobile',
+      text: { body: '/tareas' },
+      from: '573001112233',
+      from_name: 'Samuel',
+    },
+  ],
+  event: { type: 'messages', event: 'post' },
+  channel_id: 'DEADPL-PHJZQ',
+}
+
+describe('extraerMensajesDeTexto', () => {
+  it('extrae un mensaje de texto del payload real de Whapi', () => {
+    expect(extraerMensajesDeTexto(PAYLOAD_TEXTO)).toEqual([
+      {
+        id: 'p.w30M7fgwWD4XwHu.g4CA-gBgTwl0rVw',
+        numero: '573001112233',
+        texto: '/tareas',
+        fromMe: false,
+        chatId: '573001112233@s.whatsapp.net',
+      },
+    ])
+  })
+
+  it('descarta mensajes que no son de texto', () => {
+    const payload = { messages: [{ ...PAYLOAD_TEXTO.messages[0], type: 'image', text: undefined }] }
+    expect(extraerMensajesDeTexto(payload)).toEqual([])
+  })
+
+  it('descarta mensajes de grupo', () => {
+    const payload = {
+      messages: [{ ...PAYLOAD_TEXTO.messages[0], chat_id: '120363000000000000@g.us' }],
+    }
+    expect(extraerMensajesDeTexto(payload)).toEqual([])
+  })
+
+  it('descarta texto vacío o solo espacios', () => {
+    const payload = { messages: [{ ...PAYLOAD_TEXTO.messages[0], text: { body: '   ' } }] }
+    expect(extraerMensajesDeTexto(payload)).toEqual([])
+  })
+
+  it('conserva el flag from_me', () => {
+    const payload = { messages: [{ ...PAYLOAD_TEXTO.messages[0], from_me: true }] }
+    expect(extraerMensajesDeTexto(payload)[0].fromMe).toBe(true)
+  })
+
+  it('tolera payloads de otros eventos sin lanzar', () => {
+    expect(extraerMensajesDeTexto({ statuses: [{ id: 'x' }], event: { type: 'statuses' } })).toEqual([])
+    expect(extraerMensajesDeTexto({})).toEqual([])
+    expect(extraerMensajesDeTexto(null)).toEqual([])
+    expect(extraerMensajesDeTexto('no soy un objeto')).toEqual([])
+    expect(extraerMensajesDeTexto({ messages: 'no soy un array' })).toEqual([])
+  })
+
+  it('descarta entradas malformadas dentro de un array válido', () => {
+    const payload = { messages: [null, { type: 'text' }, PAYLOAD_TEXTO.messages[0]] }
+    expect(extraerMensajesDeTexto(payload)).toHaveLength(1)
+  })
+
+  it('extrae varios mensajes de un mismo payload', () => {
+    const payload = {
+      messages: [
+        PAYLOAD_TEXTO.messages[0],
+        { ...PAYLOAD_TEXTO.messages[0], id: 'otro', text: { body: '/ayuda' } },
+      ],
+    }
+    expect(extraerMensajesDeTexto(payload)).toHaveLength(2)
+  })
+})
+
+describe('debeProcesarse — la regla que evita el bucle infinito', () => {
+  const base = { id: 'x', numero: '573001112233', chatId: '573001112233@s.whatsapp.net' }
+
+  it('procesa siempre un mensaje ajeno', () => {
+    expect(debeProcesarse({ ...base, texto: '/tareas', fromMe: false })).toBe(true)
+    expect(debeProcesarse({ ...base, texto: 'hola', fromMe: false })).toBe(true)
+  })
+
+  it('procesa un mensaje propio SOLO si es un comando', () => {
+    // Caso real: el usuario se escribe a sí mismo desde la cuenta vinculada.
+    expect(debeProcesarse({ ...base, texto: '/tareas', fromMe: true })).toBe(true)
+    expect(debeProcesarse({ ...base, texto: '  /ayuda', fromMe: true })).toBe(true)
+  })
+
+  it('IGNORA las respuestas del propio bot — sin esto se contestaría en bucle', () => {
+    // Formas reales con las que empiezan las respuestas de ejecutarComando.
+    expect(debeProcesarse({ ...base, texto: '✅ Tarea creada: *Ensayo*', fromMe: true })).toBe(false)
+    expect(debeProcesarse({ ...base, texto: '*Para hoy* (2)', fromMe: true })).toBe(false)
+    expect(debeProcesarse({ ...base, texto: 'No reconocí ese comando. Escribe */ayuda*', fromMe: true })).toBe(false)
+    expect(debeProcesarse({ ...base, texto: '📝 Nota guardada', fromMe: true })).toBe(false)
+  })
+})
+
+describe('canalDelPayload', () => {
+  it('devuelve el channel_id', () => {
+    expect(canalDelPayload(PAYLOAD_TEXTO)).toBe('DEADPL-PHJZQ')
+  })
+  it('devuelve null si no viene', () => {
+    expect(canalDelPayload({})).toBeNull()
+    expect(canalDelPayload(null)).toBeNull()
+  })
+})
+
+describe('esChatDeGrupo', () => {
+  it('distingue grupo de individual', () => {
+    expect(esChatDeGrupo('120363000000000000@g.us')).toBe(true)
+    expect(esChatDeGrupo('573001112233@s.whatsapp.net')).toBe(false)
+  })
+})
+
+describe('normalizarNumero', () => {
+  it('deja solo dígitos, para que E.164 case con el formato de Whapi', () => {
+    expect(normalizarNumero('+57 300 111 2233')).toBe('573001112233')
+    expect(normalizarNumero('573001112233')).toBe('573001112233')
+    expect(normalizarNumero('+57-300-111-2233')).toBe('573001112233')
+  })
+})

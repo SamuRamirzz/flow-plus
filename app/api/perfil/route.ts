@@ -8,7 +8,7 @@ import { ZONA_HORARIA_POR_DEFECTO } from '@/lib/ai/context/fecha'
 import type { FormatoReloj } from '@/lib/hora'
 
 const COLUMNAS_PERFIL =
-  'nombre, apellido, pais, zona_horaria, formato_reloj, max_notif_por_dia, no_molestar_desde, no_molestar_hasta, onboarding_completado'
+  'nombre, apellido, pais, zona_horaria, formato_reloj, max_notif_por_dia, no_molestar_desde, no_molestar_hasta, onboarding_completado, whatsapp_numero, whatsapp_verificado, whatsapp_notificaciones'
 
 type FilaPerfil = {
   nombre: string | null
@@ -20,6 +20,9 @@ type FilaPerfil = {
   no_molestar_desde: string | null
   no_molestar_hasta: string | null
   onboarding_completado: boolean
+  whatsapp_numero: string | null
+  whatsapp_verificado: boolean
+  whatsapp_notificaciones: boolean
 }
 
 // Mismo shape en GET y en la respuesta de PATCH — camelCase, para que el
@@ -36,6 +39,9 @@ function mapearPerfil(fila: FilaPerfil | null) {
     noMolestarDesde: fila?.no_molestar_desde ?? null,
     noMolestarHasta: fila?.no_molestar_hasta ?? null,
     onboardingCompletado: fila?.onboarding_completado ?? false,
+    whatsappNumero: fila?.whatsapp_numero ?? null,
+    whatsappVerificado: fila?.whatsapp_verificado ?? false,
+    whatsappNotificaciones: fila?.whatsapp_notificaciones ?? false,
   }
 }
 
@@ -76,7 +82,7 @@ export async function PATCH(request: Request) {
 
   const parseado = actualizarPerfilSchema.safeParse(body)
   if (!parseado.success) return errorDeValidacion(parseado.error)
-  const { onboardingCompletado, nombre, apellido, pais, zonaHoraria, formatoReloj, maxNotifPorDia, noMolestarDesde, noMolestarHasta } = parseado.data
+  const { onboardingCompletado, nombre, apellido, pais, zonaHoraria, formatoReloj, maxNotifPorDia, noMolestarDesde, noMolestarHasta, whatsappNotificaciones } = parseado.data
 
   // Mismo patrón que PATCH /api/tareas/[id]: se construye campo por campo
   // según lo que de verdad vino en el body — nunca todo el objeto de una
@@ -92,6 +98,9 @@ export async function PATCH(request: Request) {
   if (maxNotifPorDia !== undefined) campos.max_notif_por_dia = maxNotifPorDia
   if (noMolestarDesde !== undefined) campos.no_molestar_desde = noMolestarDesde
   if (noMolestarHasta !== undefined) campos.no_molestar_hasta = noMolestarHasta
+  // Solo la preferencia: el número y su verificación se escriben únicamente
+  // desde /api/whatsapp/vincular y /verificar (ver actualizarPerfilSchema).
+  if (whatsappNotificaciones !== undefined) campos.whatsapp_notificaciones = whatsappNotificaciones
 
   // ── Relleno oportunista del nombre ──────────────────────────────────────
   // El trigger `crear_perfil_al_registrarse` solo corre en el INSERT de

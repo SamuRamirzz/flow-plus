@@ -413,20 +413,21 @@ export const actualizarPerfilSchema = z
     maxNotifPorDia: z.number().int('maxNotifPorDia debe ser un entero').min(0, 'maxNotifPorDia no puede ser negativo').optional(),
     noMolestarDesde: horaSchema,
     noMolestarHasta: horaSchema,
+    // Sprint 2/3 — solo la PREFERENCIA de recibir notificaciones por
+    // WhatsApp es editable acá. El número y su verificación NO: se cambian
+    // únicamente por /api/whatsapp/vincular y /verificar, que son los que
+    // prueban que el teléfono es tuyo. Permitir escribir `whatsapp_numero`
+    // por este PATCH dejaría saltarse la verificación entera.
+    whatsappNotificaciones: z.boolean().optional(),
   })
-  .refine(
-    (v) =>
-      v.onboardingCompletado !== undefined ||
-      v.nombre !== undefined ||
-      v.apellido !== undefined ||
-      v.pais !== undefined ||
-      v.zonaHoraria !== undefined ||
-      v.formatoReloj !== undefined ||
-      v.maxNotifPorDia !== undefined ||
-      v.noMolestarDesde !== undefined ||
-      v.noMolestarHasta !== undefined,
-    { message: 'No hay nada que actualizar' }
-  )
+  // "Hay algo que actualizar" = alguna clave presente, en vez de una lista
+  // de campos escrita a mano. La lista hardcodeada es exactamente el bug que
+  // la auditoría de cierre de Fase 1 encontró en `actualizarTareaSchema`:
+  // al añadir un campo nuevo y olvidar sumarlo aquí, un PATCH que mandaba
+  // SOLO ese campo devolvía 400 aunque el campo validara bien, y ningún
+  // test lo detectaba porque todos mandaban además un campo viejo. Con
+  // `Object.keys` el problema no puede repetirse al añadir el siguiente.
+  .refine((v) => Object.keys(v).length > 0, { message: 'No hay nada que actualizar' })
 
 export type ActualizarPerfilInput = z.infer<typeof actualizarPerfilSchema>
 export type AnalizarHorarioInput = z.infer<typeof analizarHorarioSchema>
@@ -453,3 +454,28 @@ export const solicitarEliminacionCuentaSchema = z.object({
 })
 
 export type SolicitarEliminacionCuentaInput = z.infer<typeof solicitarEliminacionCuentaSchema>
+
+// Sprint 2/3 — vinculación de WhatsApp.
+//
+// E.164 real (`+` obligatorio y prefijo de país): sin el `+`, un número
+// colombiano de 10 dígitos y uno con indicativo son indistinguibles, y
+// WhatsApp exige el indicativo para entregar. Se valida acá en vez de
+// "arreglarlo" en el servidor porque adivinar el país del usuario a partir
+// de un número incompleto es justo la clase de suposición que manda el
+// código de verificación al teléfono equivocado.
+export const vincularWhatsAppSchema = z.object({
+  numero: z
+    .string()
+    .trim()
+    .regex(/^\+[1-9]\d{7,14}$/, 'Escribe el número en formato internacional, empezando por + y el indicativo del país'),
+})
+
+export const verificarWhatsAppSchema = z.object({
+  codigo: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'El código son 6 dígitos'),
+})
+
+export type VincularWhatsAppInput = z.infer<typeof vincularWhatsAppSchema>
+export type VerificarWhatsAppInput = z.infer<typeof verificarWhatsAppSchema>
