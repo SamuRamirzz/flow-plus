@@ -36,19 +36,27 @@ export type ResultadoEnvio = { ok: true; mensajeId: string | null } | { ok: fals
  * operación que lo disparó. Quien llama decide si el fallo le importa; la
  * mayoría de llamadores solo lo registran.
  *
- * `numero` se acepta en cualquier formato razonable (E.164 con `+`, con
- * espacios o guiones) y se normaliza a solo dígitos, que es lo que Whapi
- * espera en `to`.
+ * `destinatario` admite DOS cosas y la diferencia importa:
+ *   · Un teléfono en cualquier formato razonable (`+57 300 123 4567`) → se
+ *     normaliza a solo dígitos, que es lo que Whapi espera en `to`.
+ *   · Un chat id completo (`...@s.whatsapp.net`, `...@lid`) → se pasa TAL
+ *     CUAL, sin tocar.
+ *
+ * Ese "sin tocar" corrige un bug real: normalizar `156126641426469@lid` a
+ * dígitos hacía que Whapi lo interpretara como el teléfono
+ * `156126641426469@s.whatsapp.net`, que es una conversación DISTINTA. El
+ * envío devolvía 200 y el usuario no veía nada, porque la respuesta caía en
+ * un chat que él nunca abrió.
  */
-export async function enviarMensajeWhatsApp(numero: string, texto: string): Promise<ResultadoEnvio> {
+export async function enviarMensajeWhatsApp(destinatario: string, texto: string): Promise<ResultadoEnvio> {
   const config = configuracion()
   if (!config) {
     console.error('[whatsapp] WHAPI_TOKEN no está configurado — no se envió nada')
     return { ok: false, detalle: 'WHAPI_TOKEN no configurado' }
   }
 
-  const destino = normalizarNumero(numero)
-  if (destino.length === 0) return { ok: false, detalle: 'Número vacío o inválido' }
+  const destino = destinatario.includes('@') ? destinatario.trim() : normalizarNumero(destinatario)
+  if (destino.length === 0) return { ok: false, detalle: 'Destinatario vacío o inválido' }
 
   try {
     const respuesta = await fetch(`${config.base}/messages/text`, {

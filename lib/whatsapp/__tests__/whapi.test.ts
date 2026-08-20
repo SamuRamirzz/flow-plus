@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { extraerMensajesDeTexto, debeProcesarse, canalDelPayload, esChatDeGrupo, normalizarNumero } from '../whapi'
+import {
+  extraerMensajesDeTexto,
+  debeProcesarse,
+  canalDelPayload,
+  esChatDeGrupo,
+  normalizarNumero,
+  esLid,
+  destinoDeRespuesta,
+  telefonoDelRemitente,
+} from '../whapi'
 
 // Payload real documentado por Whapi (support.whapi.cloud, "Incoming
 // message"), con el número cambiado.
@@ -125,5 +134,46 @@ describe('normalizarNumero', () => {
     expect(normalizarNumero('+57 300 111 2233')).toBe('573001112233')
     expect(normalizarNumero('573001112233')).toBe('573001112233')
     expect(normalizarNumero('+57-300-111-2233')).toBe('573001112233')
+  })
+})
+
+// Casos tomados del canal REAL: un remitente puede llegar como teléfono o
+// como LID, y confundirlos causó dos bugs distintos en producción.
+describe('esLid / destinoDeRespuesta / telefonoDelRemitente', () => {
+  const conLid: Parameters<typeof destinoDeRespuesta>[0] = {
+    id: 'x',
+    numero: '156126641426469@lid',
+    texto: '/ayuda',
+    fromMe: false,
+    chatId: '156126641426469@lid',
+  }
+  const conTelefono: Parameters<typeof destinoDeRespuesta>[0] = {
+    id: 'y',
+    numero: '573001112233',
+    texto: '/ayuda',
+    fromMe: false,
+    chatId: '573001112233@s.whatsapp.net',
+  }
+
+  it('distingue un LID de un teléfono', () => {
+    expect(esLid('156126641426469@lid')).toBe(true)
+    expect(esLid('573001112233@s.whatsapp.net')).toBe(false)
+    expect(esLid('573001112233')).toBe(false)
+  })
+
+  it('responde SIEMPRE al chat exacto del que vino el mensaje', () => {
+    // El bug real: responder a los dígitos del LID abría
+    // `156126641426469@s.whatsapp.net`, otra conversación, y el usuario no
+    // veía nada.
+    expect(destinoDeRespuesta(conLid)).toBe('156126641426469@lid')
+    expect(destinoDeRespuesta(conTelefono)).toBe('573001112233@s.whatsapp.net')
+  })
+
+  it('no inventa un teléfono a partir de un LID', () => {
+    expect(telefonoDelRemitente(conLid)).toBeNull()
+  })
+
+  it('extrae el teléfono cuando de verdad lo hay', () => {
+    expect(telefonoDelRemitente(conTelefono)).toBe('573001112233')
   })
 })

@@ -102,11 +102,53 @@ export function debeProcesarse(mensaje: MensajeEntrante): boolean {
 }
 
 /**
- * Normaliza un número a solo dígitos, que es como Whapi identifica al
- * remitente (`from: "573001112233"`, sin `+`). Se aplica a los dos lados de
- * cualquier comparación para que un número guardado en E.164 (`+57300...`,
- * el formato que pide la UI) case con el que llega del webhook.
+ * Normaliza un TELÉFONO a solo dígitos, para comparar un número guardado en
+ * E.164 (`+57300...`, el formato que pide la UI) con el que llega del
+ * webhook. Solo válido para teléfonos reales — ver `esLid`.
  */
 export function normalizarNumero(numero: string): string {
   return numero.replace(/\D/g, '')
+}
+
+/**
+ * ¿Este identificador es un LID (identificador de privacidad de WhatsApp) en
+ * vez de un teléfono?
+ *
+ * Verificado contra el canal real: los mensajes llegan con `from`/`chat_id`
+ * en uno de dos formatos, `573170180062@s.whatsapp.net` (teléfono real) o
+ * `156126641426469@lid` (id opaco). Los dígitos de un LID **no son un número
+ * de teléfono**, y Whapi no puede resolverlos a uno (`GET /contacts/<lid>`
+ * devuelve `phonebook:false` y ningún teléfono).
+ *
+ * Distinguirlos importa por dos motivos, ambos bugs reales que esto corrige:
+ *   · Comparar los dígitos de un LID contra `whatsapp_numero` no casa nunca,
+ *     y peor: podría casar por casualidad con el teléfono de OTRO usuario.
+ *   · Responder a los dígitos pelados de un LID abre una conversación
+ *     DISTINTA (`...@s.whatsapp.net`) de aquella en la que el usuario
+ *     escribió — el mensaje se envía "bien" y el usuario no ve nada.
+ */
+export function esLid(identificador: string): boolean {
+  return identificador.endsWith('@lid')
+}
+
+/**
+ * El identificador estable de la conversación, tal cual, para responder
+ * SIEMPRE en el mismo chat del que vino el mensaje. Nunca reconstruir un
+ * destino a partir de los dígitos: `156126641426469@lid` y
+ * `156126641426469@s.whatsapp.net` son dos chats diferentes.
+ */
+export function destinoDeRespuesta(mensaje: MensajeEntrante): string {
+  return mensaje.chatId
+}
+
+/**
+ * El teléfono real del remitente, o `null` si llegó como LID (y por tanto no
+ * se conoce). Devolver `null` en vez de los dígitos del LID es deliberado:
+ * esos dígitos parecen un teléfono pero no lo son, y tratarlos como tal es
+ * exactamente el error que hay que impedir.
+ */
+export function telefonoDelRemitente(mensaje: MensajeEntrante): string | null {
+  if (esLid(mensaje.chatId) || esLid(mensaje.numero)) return null
+  const digitos = normalizarNumero(mensaje.numero)
+  return digitos.length > 0 ? digitos : null
 }
