@@ -1,7 +1,9 @@
 import { supabaseServer } from '@/lib/server/supabaseServer'
-import { enviarMensajeWhatsApp } from '@/lib/server/whatsapp'
+import { enviarMensajeWhatsApp, enviarMenuWhatsApp } from '@/lib/server/whatsapp'
 import { ejecutarComando } from '@/lib/server/whatsapp/ejecutarComando'
+import { ejecutarConIA } from '@/lib/server/whatsapp/ejecutarIA'
 import { parsearComando } from '@/lib/whatsapp/parser'
+import { MENU_PRINCIPAL, pideMenu, resolverOpcion, comandoDeOpcion } from '@/lib/whatsapp/menus'
 import {
   extraerMensajesDeTexto,
   debeProcesarse,
@@ -232,15 +234,38 @@ export async function POST(request: Request) {
       }
 
       const hoy = hoyEnZona(new Date(), usuario.zonaHoraria ?? ZONA_HORARIA_POR_DEFECTO)
-      const comando = parsearComando(texto, hoy)
-      const resultado = await ejecutarComando(usuario.userId, comando)
+
+      // ── Enrutado, en orden de coste creciente ──
+      // 1. Opción de menú tocada (o su número, si se cayó al fallback de
+      //    texto) → se traduce al comando equivalente. El menú solo ESCRIBE
+      //    el comando por ti; no hay un camino de ejecución paralelo que
+      //    pueda divergir de `/tareas`.
+      // 2. Petición de menú ("hola", "menú") → se manda el menú.
+      // 3. Empieza por `/` → parser determinístico: gratis e instantáneo.
+      // 4. Cualquier otra cosa → la IA. Es lo que permite escribir "ensayo
+      //    de historia para el viernes" sin recordar ninguna sintaxis, y
+      //    cuesta una llamada a Gemini, por eso va la última.
+      const opcion = mensaje.esOpcion || /^\d+$/.test(texto) ? resolverOpcion(MENU_PRINCIPAL, texto) : null
+      const comandoDeMenu = opcion ? comandoDeOpcion(opcion.id) : null
+
+      if (!comandoDeMenu && !mensaje.esOpcion && pideMenu(texto)) {
+        await enviarMenuWhatsApp(destino, MENU_PRINCIPAL)
+        await registrar({ userId: usuario.userId, remitente: destino, mensaje: texto, comando: 'menu', resultado: 'ejecutado' })
+        procesados++
+        continue
+      }
+
+      const textoAEjecutar = comandoDeMenu ?? texto
+      const resultado = textoAEjecutar.startsWith('/')
+        ? await ejecutarComando(usuario.userId, parsearComando(textoAEjecutar, hoy))
+        : await ejecutarConIA(usuario.userId, textoAEjecutar)
 
       await enviarMensajeWhatsApp(destino, resultado.respuesta)
       await registrar({
         userId: usuario.userId,
         remitente: destino,
         mensaje: texto,
-        comando: comando.tipo,
+        comando: comandoDeMenu ? `menu→${comandoDeMenu}` : textoAEjecutar.startsWith('/') ? parsearComando(textoAEjecutar, hoy).tipo : 'ia',
         resultado: resultado.resultado,
         detalleError: resultado.detalleError,
       })

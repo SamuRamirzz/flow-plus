@@ -19,9 +19,12 @@
 export type MensajeEntrante = {
   id: string
   numero: string
+  /** Texto escrito, o el id de la opción si el usuario tocó un botón/lista. */
   texto: string
   fromMe: boolean
   chatId: string
+  /** true si `texto` es el id de una opción tocada, no algo que el usuario escribió. */
+  esOpcion: boolean
 }
 
 type MensajeCrudo = {
@@ -31,6 +34,25 @@ type MensajeCrudo = {
   type?: unknown
   chat_id?: unknown
   text?: { body?: unknown }
+  // Al tocar un botón o elegir una fila de lista, WhatsApp NO manda un
+  // mensaje de texto: manda `type: "reply"` con el id de la opción dentro.
+  // Formato confirmado en la documentación de Whapi ("Incoming message").
+  reply?: {
+    type?: unknown
+    buttons_reply?: { id?: unknown; title?: unknown }
+    list_reply?: { id?: unknown; title?: unknown }
+  }
+}
+
+/**
+ * Id de la opción elegida, si este mensaje crudo es la respuesta a un botón
+ * o a una lista. `null` si es un mensaje normal.
+ */
+function idDeRespuestaInteractiva(crudo: MensajeCrudo): string | null {
+  if (crudo.type !== 'reply' || !crudo.reply) return null
+  const elegida = crudo.reply.buttons_reply ?? crudo.reply.list_reply
+  const id = elegida?.id
+  return typeof id === 'string' && id.length > 0 ? id : null
 }
 
 /** Un chat de grupo termina en `@g.us`; uno individual, en `@s.whatsapp.net`. */
@@ -53,9 +75,14 @@ export function extraerMensajesDeTexto(payload: unknown): MensajeEntrante[] {
   const salida: MensajeEntrante[] = []
   for (const crudo of mensajes as MensajeCrudo[]) {
     if (typeof crudo !== 'object' || crudo === null) continue
-    if (crudo.type !== 'text') continue
 
-    const texto = crudo.text?.body
+    // Una opción tocada llega como `type: "reply"`, no como texto. Se
+    // normaliza a su id (`menu:tareas_hoy`) y sigue el mismo camino que un
+    // mensaje escrito — así el resto del webhook no necesita dos ramas.
+    const idOpcion = idDeRespuestaInteractiva(crudo)
+    if (crudo.type !== 'text' && idOpcion === null) continue
+
+    const texto = idOpcion ?? crudo.text?.body
     const numero = crudo.from
     const chatId = crudo.chat_id
     const id = crudo.id
@@ -63,7 +90,7 @@ export function extraerMensajesDeTexto(payload: unknown): MensajeEntrante[] {
     if (texto.trim().length === 0) continue
     if (esChatDeGrupo(chatId)) continue
 
-    salida.push({ id, numero, texto, fromMe: crudo.from_me === true, chatId })
+    salida.push({ id, numero, texto, fromMe: crudo.from_me === true, chatId, esOpcion: idOpcion !== null })
   }
   return salida
 }
@@ -98,6 +125,9 @@ export function canalDelPayload(payload: unknown): string | null {
  */
 export function debeProcesarse(mensaje: MensajeEntrante): boolean {
   if (!mensaje.fromMe) return true
+  // Una opción tocada por el propio dueño del canal es una interacción
+  // deliberada con Flow+, no un eco: el bot nunca "toca botones".
+  if (mensaje.esOpcion) return true
   return mensaje.texto.trimStart().startsWith('/')
 }
 

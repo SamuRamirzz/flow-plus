@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { MessageCircle, Check, Loader2, Unlink } from 'lucide-react'
+import { motion } from 'motion/react'
+import { MessageCircle, Check, Loader2, Unlink, Sparkles, LayoutList, Terminal, Send } from 'lucide-react'
 import { useToast } from '@/lib/toast'
 import { apiPatch } from '@/lib/api/cliente'
 import BotonConfirmacion from '@/components/ui/BotonConfirmacion'
@@ -12,6 +13,29 @@ import BotonConfirmacion from '@/components/ui/BotonConfirmacion'
 // Whapi.Cloud usa una sesión de dispositivo vinculada por QR del lado del
 // servidor, así que el usuario no tiene que hacer ningún paso previo — solo
 // confirmar su número.
+
+// Las tres formas de interactuar, en el orden en que conviene descubrirlas:
+// primero la que no exige aprender nada.
+const FORMAS_DE_USO = [
+  {
+    icono: Sparkles,
+    titulo: 'Escríbele normal',
+    descripcion: 'La misma IA de Flow+ lo interpreta y organiza tus tareas, notas y horario.',
+    ejemplo: '"ensayo de historia para el viernes"',
+  },
+  {
+    icono: LayoutList,
+    titulo: 'Usa el menú',
+    descripcion: 'Escribe "menú" y elige con botones, sin recordar nada.',
+    ejemplo: 'menú',
+  },
+  {
+    icono: Terminal,
+    titulo: 'Comandos exactos',
+    descripcion: 'Más rápidos y sin coste de IA, si ya sabes lo que quieres.',
+    ejemplo: '/tareas · /horario · /proximo · /ayuda',
+  },
+]
 
 type Estado = {
   numero: string | null
@@ -27,6 +51,7 @@ export default function CategoriaWhatsApp() {
   const [codigo, setCodigo] = useState('')
   const [fase, setFase] = useState<'numero' | 'codigo'>('numero')
   const [enviando, setEnviando] = useState(false)
+  const [probando, setProbando] = useState(false)
 
   useEffect(() => {
     let activo = true
@@ -99,6 +124,23 @@ export default function CategoriaWhatsApp() {
     }
   }
 
+  async function enviarPrueba() {
+    setProbando(true)
+    try {
+      const res = await fetch('/api/whatsapp/probar', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        notify(data.error ?? 'No se pudo enviar el mensaje de prueba', false)
+        return
+      }
+      notify('Te mandamos el menú por WhatsApp')
+    } catch {
+      notify('No se pudo enviar el mensaje de prueba', false)
+    } finally {
+      setProbando(false)
+    }
+  }
+
   async function desvincular() {
     const res = await fetch('/api/whatsapp/vincular', { method: 'DELETE' })
     if (!res.ok) {
@@ -133,7 +175,12 @@ export default function CategoriaWhatsApp() {
 
       {estado.verificado ? (
         <>
-          <div className="rounded-2xl bg-panel-glass backdrop-blur-xl px-4 py-3.5">
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            className="rounded-2xl bg-panel-glass backdrop-blur-xl px-4 py-3.5"
+          >
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm text-paper font-medium flex items-center gap-1.5">
@@ -149,7 +196,19 @@ export default function CategoriaWhatsApp() {
                 icono={<Unlink size={13} />}
               />
             </div>
-          </div>
+
+            {/* Comprobar que el canal responde sin tener que ir al teléfono a
+                escribir. Manda el menú real, no un mensaje falso de prueba:
+                si llega, es que TODO el camino funciona. */}
+            <button
+              onClick={enviarPrueba}
+              disabled={probando}
+              className="mt-3 flex items-center gap-1.5 text-[11px] text-coral hover:text-paper transition disabled:opacity-40"
+            >
+              {probando ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+              Enviarme el menú de prueba
+            </button>
+          </motion.div>
 
           <div className="flex items-center justify-between rounded-2xl bg-panel-glass backdrop-blur-xl px-4 py-3.5 gap-3">
             <div className="min-w-0">
@@ -171,16 +230,28 @@ export default function CategoriaWhatsApp() {
             </button>
           </div>
 
-          <div className="rounded-2xl bg-panel-glass backdrop-blur-xl px-4 py-3.5">
-            <p className="text-sm text-paper font-medium mb-2">Comandos disponibles</p>
-            <ul className="text-muted text-xs space-y-1 font-mono">
-              <li>/tarea Ensayo, historia, mañana, alta</li>
-              <li>/tareas · /horario · /proximo</li>
-              <li>/completar ensayo</li>
-              <li>/nota materia biología, revisar cap. 5</li>
-              <li>/ayuda</li>
-            </ul>
-          </div>
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: 0.06 }}
+            className="rounded-2xl bg-panel-glass backdrop-blur-xl px-4 py-3.5"
+          >
+            <p className="text-sm text-paper font-medium">Tres formas de usarlo</p>
+            <p className="text-muted text-xs mt-0.5 mb-3">Usa la que prefieras — todas hacen lo mismo.</p>
+
+            <div className="flex flex-col gap-2.5">
+              {FORMAS_DE_USO.map((forma) => (
+                <div key={forma.titulo} className="rounded-xl bg-panel-2/50 px-3 py-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <forma.icono size={13} className="text-coral flex-shrink-0" />
+                    <p className="text-xs text-paper font-medium">{forma.titulo}</p>
+                  </div>
+                  <p className="text-muted text-[11px] mt-1 leading-relaxed">{forma.descripcion}</p>
+                  <p className="text-muted/80 text-[11px] mt-1.5 font-mono break-words">{forma.ejemplo}</p>
+                </div>
+              ))}
+            </div>
+          </motion.div>
         </>
       ) : fase === 'numero' ? (
         <div className="rounded-2xl bg-panel-glass backdrop-blur-xl px-4 py-3.5">

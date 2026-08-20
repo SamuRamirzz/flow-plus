@@ -39,6 +39,7 @@ describe('extraerMensajesDeTexto', () => {
         texto: '/tareas',
         fromMe: false,
         chatId: '573001112233@s.whatsapp.net',
+        esOpcion: false,
       },
     ])
   })
@@ -90,7 +91,7 @@ describe('extraerMensajesDeTexto', () => {
 })
 
 describe('debeProcesarse — la regla que evita el bucle infinito', () => {
-  const base = { id: 'x', numero: '573001112233', chatId: '573001112233@s.whatsapp.net' }
+  const base = { id: 'x', numero: '573001112233', chatId: '573001112233@s.whatsapp.net', esOpcion: false }
 
   it('procesa siempre un mensaje ajeno', () => {
     expect(debeProcesarse({ ...base, texto: '/tareas', fromMe: false })).toBe(true)
@@ -146,6 +147,7 @@ describe('esLid / destinoDeRespuesta / telefonoDelRemitente', () => {
     texto: '/ayuda',
     fromMe: false,
     chatId: '156126641426469@lid',
+    esOpcion: false,
   }
   const conTelefono: Parameters<typeof destinoDeRespuesta>[0] = {
     id: 'y',
@@ -153,6 +155,7 @@ describe('esLid / destinoDeRespuesta / telefonoDelRemitente', () => {
     texto: '/ayuda',
     fromMe: false,
     chatId: '573001112233@s.whatsapp.net',
+    esOpcion: false,
   }
 
   it('distingue un LID de un teléfono', () => {
@@ -175,5 +178,50 @@ describe('esLid / destinoDeRespuesta / telefonoDelRemitente', () => {
 
   it('extrae el teléfono cuando de verdad lo hay', () => {
     expect(telefonoDelRemitente(conTelefono)).toBe('573001112233')
+  })
+})
+
+// Formato confirmado en la doc de Whapi: al tocar un botón NO llega un
+// mensaje de texto, llega `type: "reply"` con el id dentro.
+describe('respuestas de botón y de lista', () => {
+  const conBoton = (reply: Record<string, unknown>) => ({
+    messages: [
+      {
+        id: 'r1',
+        from_me: false,
+        type: 'reply',
+        chat_id: '573001112233@s.whatsapp.net',
+        from: '573001112233',
+        reply,
+      },
+    ],
+  })
+
+  it('normaliza un botón tocado a su id, marcándolo como opción', () => {
+    const [m] = extraerMensajesDeTexto(
+      conBoton({ type: 'buttons_reply', buttons_reply: { id: 'menu:tareas_hoy', title: 'Tareas de hoy' } })
+    )
+    expect(m.texto).toBe('menu:tareas_hoy')
+    expect(m.esOpcion).toBe(true)
+  })
+
+  it('hace lo mismo con una fila de lista', () => {
+    const [m] = extraerMensajesDeTexto(
+      conBoton({ type: 'list_reply', list_reply: { id: 'menu:horario', title: 'Mi horario' } })
+    )
+    expect(m.texto).toBe('menu:horario')
+    expect(m.esOpcion).toBe(true)
+  })
+
+  it('descarta un reply sin id utilizable', () => {
+    expect(extraerMensajesDeTexto(conBoton({ type: 'buttons_reply', buttons_reply: {} }))).toEqual([])
+    expect(extraerMensajesDeTexto(conBoton({}))).toEqual([])
+  })
+
+  it('una opción tocada por el dueño del canal SÍ se procesa', () => {
+    // No es un eco del bot: el bot nunca toca botones. Sin esta regla, el
+    // menú sería inservible justo en el montaje de "escribirse a sí mismo".
+    const base = { id: 'x', numero: '57300', chatId: '57300@s.whatsapp.net' }
+    expect(debeProcesarse({ ...base, texto: 'menu:horario', fromMe: true, esOpcion: true })).toBe(true)
   })
 })
