@@ -35,28 +35,58 @@ import { hoyEnZona, ZONA_HORARIA_POR_DEFECTO } from '@/lib/ai/context/fecha'
 // que la ruta existe.
 //
 // ─────────────────────────────────────────────────────────────────────────
-// ⚠️ EL CANAL ES UN WHATSAPP PERSONAL — de ahí la regla de silencio
+// ⚠️ EL CANAL ES UN WHATSAPP PERSONAL — qué se responde y qué se guarda
 // ─────────────────────────────────────────────────────────────────────────
 // Whapi se vincula por QR a una cuenta de WhatsApp real. En este proyecto
-// esa cuenta es la PERSONAL del usuario, así que por este webhook pasa
-// absolutamente TODA su mensajería: amigos, familia, grupos, todo.
+// esa cuenta es una PERSONAL del usuario, así que por este webhook pasa toda
+// su mensajería: amigos, familia, todo.
 //
-// La primera versión trataba cada mensaje entrante como un intento de
-// comando: buscaba al remitente, no lo encontraba, y le respondía "Este
-// número no está vinculado a Flow+". El resultado real, verificado en
-// producción, fue que el bot **le contestó eso a contactos personales del
-// usuario** (3 mensajes a 2 personas) y guardó el texto íntegro de sus
-// conversaciones privadas en `whatsapp_comandos_log.mensaje_crudo`.
+// Eso obliga a decidir dos cosas por separado, y aquí van por caminos
+// distintos a propósito:
 //
-// La regla que lo corrige: **de un remitente NO vinculado solo se atiende un
-// mensaje que empiece por `/`**. Cualquier otra cosa se ignora por completo
-// — sin responder y sin registrar su contenido. Un amigo escribiendo "hola"
-// no recibe nada y no queda escrito en ninguna tabla; alguien que escribe
-// `/ayuda` sí recibe la explicación de cómo vincularse. A un usuario ya
-// vinculado se le atiende todo, porque él sí eligió hablar con Flow+.
+//   · A QUIÉN SE RESPONDE → a todos. Decisión explícita del usuario. Un
+//     remitente no vinculado recibe el reto de autenticación
+//     (RETO_AUTENTICACION), escriba lo que escriba. Hubo una versión que
+//     solo atendía mensajes con `/` para no molestar a los contactos, pero
+//     tenía un coste peor: nadie podía descubrir cómo vincularse, porque
+//     escribir "hola" no producía nada. La consecuencia asumida es que un
+//     contacto que escriba varias veces recibe varias respuestas, hasta el
+//     tope de MAX_COMANDOS_POR_HORA.
+//
+//   · QUÉ SE GUARDA → el texto literal de un remitente NO vinculado NO se
+//     escribe en la base. Se registra la fila (para diagnóstico) con un
+//     marcador en vez del contenido, salvo que sea un comando, que sí va
+//     dirigido a Flow+. Responder es una cosa; archivar la correspondencia
+//     privada de terceros es otra, y esta se mantiene cerrada.
+//
+// Una versión anterior sí llegó a guardar conversaciones privadas íntegras
+// en `whatsapp_comandos_log.mensaje_crudo` (3 auto-respuestas reales a 2
+// contactos); esas filas se purgaron y el marcador existe para que no vuelva
+// a pasar.
 export const dynamic = 'force-dynamic'
 
 const MAX_COMANDOS_POR_HORA = 30
+
+// Reto de autenticación para quien escribe sin estar vinculado.
+//
+// El código solo puede generarse desde DENTRO de una sesión de Flow+
+// (`POST /api/whatsapp/vincular` exige `requerirUsuario()`), así que
+// devolverlo desde WhatsApp demuestra las dos cosas a la vez: que esa
+// persona tiene acceso a la cuenta, y que controla este teléfono. Eso es lo
+// que convierte esto en autenticación real y no en un simple "escribe tu
+// correo", que cualquiera podría teclear.
+const RETO_AUTENTICACION = [
+  '🔒 *Necesito confirmar que eres tú*',
+  '',
+  'Este WhatsApp todavía no está vinculado a ninguna cuenta de Flow+.',
+  '',
+  'Para autenticarte:',
+  '1️⃣ Abre Flow+ → *Ajustes → WhatsApp*',
+  '2️⃣ Pide un código de verificación',
+  '3️⃣ Respóndeme aquí con:  `/vincular 123456`',
+  '',
+  '_El código vence a los 10 minutos._',
+].join('\n')
 
 type PerfilVinculado = { userId: string; zonaHoraria: string | null }
 
@@ -197,38 +227,48 @@ export async function POST(request: Request) {
   if (mensajes.length === 0) return Response.json({ ok: true, procesados: 0 })
 
   let procesados = 0
-  let ignorados = 0
 
   for (const mensaje of mensajes) {
     const destino = destinoDeRespuesta(mensaje)
     const texto = mensaje.texto.trim()
     const esComando = texto.startsWith('/')
 
+    // El canal es un WhatsApp personal: por acá pasa la correspondencia
+    // privada del dueño. Se RESPONDE a todos (ver más abajo), pero el
+    // contenido literal de lo que escribe alguien no vinculado no se guarda
+    // en la base — un comando sí, porque va dirigido a Flow+ y es lo que
+    // hace falta para diagnosticar. Responder y almacenar son decisiones
+    // distintas, y esta segunda se mantiene conservadora.
+    const textoParaLog = esComando ? texto : '(mensaje no vinculado)'
+
     try {
       const usuario = await buscarUsuario(mensaje)
 
-      // ── La regla de silencio ──
-      // Sin vinculación y sin `/`, esto es correspondencia privada del
-      // dueño del teléfono. Ni se responde ni se guarda su contenido.
-      if (!usuario && !esComando) {
-        ignorados++
-        continue
-      }
-
       if (await superaLimite(destino)) {
-        await registrar({ userId: usuario?.userId ?? null, remitente: destino, mensaje: texto, comando: null, resultado: 'error', detalleError: 'límite por hora superado' })
+        await registrar({ userId: usuario?.userId ?? null, remitente: destino, mensaje: textoParaLog, comando: null, resultado: 'error', detalleError: 'límite por hora superado' })
         continue
       }
 
       if (!usuario) {
-        // Llega acá solo si escribió un comando: sí merece respuesta.
+        // ── Se responde a CUALQUIER remitente, vinculado o no ──
+        // Decisión explícita del usuario. La alternativa que estuvo vigente
+        // un rato era el silencio salvo comandos con `/`, para que el bot no
+        // le contestara a los contactos personales del dueño del canal (que
+        // es un WhatsApp real, no un número de servicio). El coste de esa
+        // regla era que nadie podía DESCUBRIR cómo vincularse: escribías
+        // "hola" y no pasaba nada.
+        //
+        // ⚠️ Consecuencia asumida, no un descuido: cada mensaje de cualquier
+        // contacto recibe esta respuesta, hasta el tope de
+        // MAX_COMANDOS_POR_HORA. Una ráfaga de 10 mensajes de un amigo
+        // genera 10 respuestas. Si algún día molesta, el punto exacto donde
+        // acotarlo es acá: bastaría consultar `whatsapp_comandos_log` por
+        // este mismo remitente y saltar si ya se le respondió hace poco.
         const vinculacion = texto.match(/^\/vincular\s+(\d{6})\s*$/i)
-        const respuesta = vinculacion
-          ? await intentarVinculacionPorCodigo(mensaje, vinculacion[1])
-          : 'Este WhatsApp no está vinculado a ninguna cuenta de Flow+.\n\nEntra a *Ajustes → WhatsApp* en la app, pide un código y respóndeme aquí con:\n`/vincular 123456`'
+        const respuesta = vinculacion ? await intentarVinculacionPorCodigo(mensaje, vinculacion[1]) : RETO_AUTENTICACION
 
         await enviarMensajeWhatsApp(destino, respuesta)
-        await registrar({ userId: null, remitente: destino, mensaje: texto, comando: vinculacion ? 'vincular' : null, resultado: 'no_reconocido', detalleError: 'remitente no vinculado' })
+        await registrar({ userId: null, remitente: destino, mensaje: textoParaLog, comando: vinculacion ? 'vincular' : null, resultado: 'no_reconocido', detalleError: 'remitente no vinculado' })
         procesados++
         continue
       }
@@ -279,5 +319,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return Response.json({ ok: true, procesados, ignorados })
+  return Response.json({ ok: true, procesados })
 }
