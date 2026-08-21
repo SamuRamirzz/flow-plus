@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'motion/react'
 import CarruselOnboarding from './CarruselOnboarding'
 import CompletarPerfil from './CompletarPerfil'
+import AvatarUsuario from '@/components/ui/AvatarUsuario'
 import { textoSaludo, subtituloSaludo, msSaludo } from '@/lib/onboarding/saludo'
 
 type Props = {
@@ -15,6 +16,8 @@ type Props = {
   nombre: string | null
   /** Nombre completo, para precargar el campo de CompletarPerfil.tsx. */
   nombreCompleto: string | null
+  /** Foto efectiva (subida propia, o la de Google si no hay una — ver lib/onboarding/avatar.ts), ya resuelta en el servidor. */
+  avatar: string | null
   /** Ruta interna ya validada en el servidor (ver destinoSeguro). */
   destino: string
 }
@@ -53,7 +56,7 @@ const EASE_ASENTAR = [0.16, 1, 0.3, 1] as const
 // Visualmente sigue siendo continuo — misma composición centrada, mismo
 // fondo, misma tipografía que /login — así que para el usuario ES la
 // pantalla de entrada que sigue hablándole, no un salto a otro sitio.
-export default function Bienvenida({ esPrimeraVez, faltaPerfil, nombre, nombreCompleto, destino }: Props) {
+export default function Bienvenida({ esPrimeraVez, faltaPerfil, nombre, nombreCompleto, avatar, destino }: Props) {
   const router = useRouter()
   const [fase, setFase] = useState<Fase>('saludo')
   const [guardando, setGuardando] = useState(false)
@@ -140,6 +143,16 @@ export default function Bienvenida({ esPrimeraVez, faltaPerfil, nombre, nombreCo
             transition={{ duration: 0.55, ease: EASE_ASENTAR }}
             className="max-w-lg text-center cursor-pointer select-none"
           >
+            {avatar && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.85 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5, delay: 0.05, ease: EASE_ASENTAR }}
+                className="flex justify-center mb-5"
+              >
+                <AvatarUsuario url={avatar} nombreParaInicial={nombre ?? '?'} size={64} className="ring-2 ring-panel-glass" />
+              </motion.div>
+            )}
             <motion.h1
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}

@@ -419,6 +419,12 @@ export const actualizarPerfilSchema = z
     // prueban que el teléfono es tuyo. Permitir escribir `whatsapp_numero`
     // por este PATCH dejaría saltarse la verificación entera.
     whatsappNotificaciones: z.boolean().optional(),
+    // Foto de perfil subida por el usuario. `.url()` valida la forma; que
+    // apunte de verdad al bucket del propio usuario lo garantiza el RLS de
+    // Storage (solo pudo subirla bajo su propio `user_id`), no este schema.
+    // `.nullable()` porque `null` explícito es "borra la foto subida, vuelve
+    // a la de Google" — un campo real, no "ausente".
+    avatarUrl: z.string().url('La URL del avatar no es válida').nullable().optional(),
   })
   // "Hay algo que actualizar" = alguna clave presente, en vez de una lista
   // de campos escrita a mano. La lista hardcodeada es exactamente el bug que

@@ -81,7 +81,15 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                 <ImmersiveProvider>
                   <AjustesModalProvider>
                     <LightRaysBackground />
-                    <ThemeToggle />
+                    {/* El botón flotante solo tiene sentido SIN sesión: en
+                        la landing y /login, Ajustes ni siquiera existe (pide
+                        sesión), así que este botón es la única forma de
+                        cambiar de tema ahí. Con sesión, Ajustes → Apariencia
+                        ya lo cubre (mismo useTheme(), mismo estado) y este
+                        botón flotante quedaría duplicado — se quita, no se
+                        oculta con CSS, para no dejar un control fantasma en
+                        el DOM. */}
+                    {!haySesion && <ThemeToggle />}
                     {/* Campana global — antes vivía solo dentro de
                         AgendaHome (visible únicamente en /agenda); una
                         notificación de horario o de una nota no tiene por

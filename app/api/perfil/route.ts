@@ -8,7 +8,7 @@ import { ZONA_HORARIA_POR_DEFECTO } from '@/lib/ai/context/fecha'
 import type { FormatoReloj } from '@/lib/hora'
 
 const COLUMNAS_PERFIL =
-  'nombre, apellido, pais, zona_horaria, formato_reloj, max_notif_por_dia, no_molestar_desde, no_molestar_hasta, onboarding_completado, whatsapp_numero, whatsapp_verificado, whatsapp_notificaciones'
+  'nombre, apellido, pais, zona_horaria, formato_reloj, max_notif_por_dia, no_molestar_desde, no_molestar_hasta, onboarding_completado, whatsapp_numero, whatsapp_verificado, whatsapp_notificaciones, avatar_url'
 
 type FilaPerfil = {
   nombre: string | null
@@ -23,6 +23,7 @@ type FilaPerfil = {
   whatsapp_numero: string | null
   whatsapp_verificado: boolean
   whatsapp_notificaciones: boolean
+  avatar_url: string | null
 }
 
 // Mismo shape en GET y en la respuesta de PATCH — camelCase, para que el
@@ -42,6 +43,7 @@ function mapearPerfil(fila: FilaPerfil | null) {
     whatsappNumero: fila?.whatsapp_numero ?? null,
     whatsappVerificado: fila?.whatsapp_verificado ?? false,
     whatsappNotificaciones: fila?.whatsapp_notificaciones ?? false,
+    avatarUrl: fila?.avatar_url ?? null,
   }
 }
 
@@ -82,7 +84,7 @@ export async function PATCH(request: Request) {
 
   const parseado = actualizarPerfilSchema.safeParse(body)
   if (!parseado.success) return errorDeValidacion(parseado.error)
-  const { onboardingCompletado, nombre, apellido, pais, zonaHoraria, formatoReloj, maxNotifPorDia, noMolestarDesde, noMolestarHasta, whatsappNotificaciones } = parseado.data
+  const { onboardingCompletado, nombre, apellido, pais, zonaHoraria, formatoReloj, maxNotifPorDia, noMolestarDesde, noMolestarHasta, whatsappNotificaciones, avatarUrl } = parseado.data
 
   // Mismo patrón que PATCH /api/tareas/[id]: se construye campo por campo
   // según lo que de verdad vino en el body — nunca todo el objeto de una
@@ -101,6 +103,10 @@ export async function PATCH(request: Request) {
   // Solo la preferencia: el número y su verificación se escriben únicamente
   // desde /api/whatsapp/vincular y /verificar (ver actualizarPerfilSchema).
   if (whatsappNotificaciones !== undefined) campos.whatsapp_notificaciones = whatsappNotificaciones
+  // `null` explícito BORRA la foto subida (vuelve a la de Google, si hay);
+  // `undefined` (ausente del body) significa "no la toques" — misma
+  // distinción que ya usan apellido/pais en este mismo endpoint.
+  if (avatarUrl !== undefined) campos.avatar_url = avatarUrl
 
   // ── Relleno oportunista del nombre ──────────────────────────────────────
   // El trigger `crear_perfil_al_registrarse` solo corre en el INSERT de

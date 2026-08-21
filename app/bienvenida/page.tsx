@@ -3,6 +3,7 @@ import { getUserIdOpcional } from '@/lib/server/usuario'
 import { clienteDeSesion } from '@/lib/server/sesion'
 import { supabaseServer } from '@/lib/server/supabaseServer'
 import { metadataDeClaims, nombreParaSaludo, nombreCompletoDeClaims, destinoSeguro } from '@/lib/onboarding/saludo'
+import { avatarEfectivo } from '@/lib/onboarding/avatar'
 import Bienvenida from '@/components/onboarding/Bienvenida'
 
 // Sprint Onboarding — la pantalla que ve el usuario justo después de que su
@@ -31,7 +32,7 @@ export default async function PaginaBienvenida({ searchParams }: Props) {
   const destino = destinoSeguro(volverA)
 
   const [{ data: perfil }, supabase] = await Promise.all([
-    supabaseServer.from('perfil_academico').select('onboarding_completado, apellido, pais').eq('user_id', userId).maybeSingle(),
+    supabaseServer.from('perfil_academico').select('onboarding_completado, apellido, pais, avatar_url').eq('user_id', userId).maybeSingle(),
     clienteDeSesion(),
   ])
 
@@ -58,6 +59,9 @@ export default async function PaginaBienvenida({ searchParams }: Props) {
   // función que ya usa el autorelleno server-side de PATCH /api/perfil).
   const nombre = nombreParaSaludo(metadataDeClaims(claims?.claims))
   const nombreCompleto = nombreCompletoDeClaims(claims?.claims)
+  const avatar = avatarEfectivo(perfil?.avatar_url ?? null, claims?.claims)
 
-  return <Bienvenida esPrimeraVez={esPrimeraVez} faltaPerfil={faltaPerfil} nombre={nombre} nombreCompleto={nombreCompleto} destino={destino} />
+  return (
+    <Bienvenida esPrimeraVez={esPrimeraVez} faltaPerfil={faltaPerfil} nombre={nombre} nombreCompleto={nombreCompleto} avatar={avatar} destino={destino} />
+  )
 }
