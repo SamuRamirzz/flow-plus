@@ -176,6 +176,15 @@ export default function TerminosServicioPage() {
               <Item>Compartir tu cuenta con terceros o hacer ingeniería inversa de la aplicación.</Item>
               <Item>Usar el canal de WhatsApp de Flow+ para enviar spam, contenido ajeno a tu agenda académica, o intentar sobrecargarlo con mensajes automatizados.</Item>
             </Lista>
+            <Destacado icono={ShieldAlert} titulo="Hay topes de uso, y por qué existen" tono="pendiente">
+              Las funciones que llaman a la inteligencia artificial (escribirle al asistente, analizar un archivo, generar un
+              informe) y el envío de mensajes por WhatsApp tienen un <Fuerte>tope de uso por hora</Fuerte>. Están puestos muy por
+              encima de lo que necesita cualquier uso normal — no vas a toparte con ellos organizando tus tareas — y existen por
+              dos motivos concretos: cada consulta a la IA tiene un costo real que paga quien mantiene Flow+, y el número de
+              WhatsApp es <Fuerte>uno solo para todos los usuarios</Fuerte>, así que si alguien lo satura y WhatsApp lo bloquea
+              por spam, el canal deja de funcionar para todo el mundo, no solo para quien abusó. Si alcanzás un tope, la app te
+              lo dice y podés seguir al rato; no se te sanciona ni se te cierra la cuenta por eso.
+            </Destacado>
           </section>
 
           <section className="mb-14">

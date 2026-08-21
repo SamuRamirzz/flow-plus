@@ -40,6 +40,11 @@ export async function DELETE(_request: Request, { params }: Contexto) {
 
   const resultado = await borrarBloque(auth.userId, id)
 
-  if (!resultado.ok) return errorJson(resultado.error, 500)
+  if (!resultado.ok) {
+    // Mismo criterio que el PATCH de arriba: un id que no existe o que no es
+    // de este usuario es un 404, no un 500 ni un falso 200.
+    if (resultado.noEncontrado) return errorJson('Bloque de horario no encontrado', 404)
+    return errorJson(resultado.error, 500)
+  }
   return ok({ eliminado: true })
 }

@@ -3,6 +3,7 @@ import { hoyEnZona, horaEnZona, ZONA_HORARIA_POR_DEFECTO } from '@/lib/ai/contex
 import { calcularVentanaRecordatorio } from '@/lib/ai/agents/reminder'
 import { decidirNotificar, type CandidatoNotificacion } from '@/lib/ai/agents/notification'
 import { crearNotificacion } from '@/lib/server/notificaciones'
+import { purgarLimitesViejos, purgarCodigosVencidos } from '@/lib/server/limites'
 import { ok, errorJson } from '@/lib/server/respuestas'
 
 // Vercel Cron invoca este endpoint una vez al día (ver vercel.json, "0 13
@@ -229,10 +230,21 @@ export async function GET(request: Request) {
       }
     }
 
+    // Limpieza del contador de topes de uso (auditoría 2026-08-22). Va acá y
+    // no en un cron propio porque el plan Hobby de Vercel solo admite un
+    // cron diario — ya documentado en este archivo — y porque una fila de
+    // `limites_uso` fuera de su ventana no influye en ningún tope: es basura
+    // que solo hace crecer la tabla. `purgarLimitesViejos` nunca lanza, así
+    // que no puede tumbar la corrida de recordatorios, que es lo importante.
+    const limitesPurgados = await purgarLimitesViejos()
+    const codigosPurgados = await purgarCodigosVencidos()
+
     return ok({
       ejecutadoEn: ahora.toISOString(),
       usuariosConsiderados: userIds.length,
       usuarios: resultados,
+      limitesPurgados,
+      codigosPurgados,
       ...(fallos.length > 0 ? { fallos } : {}),
     })
   } catch (error) {

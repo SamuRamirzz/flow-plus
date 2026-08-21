@@ -1,5 +1,6 @@
 import { requerirUsuario } from '@/lib/server/usuario'
 import { esRutaDelUsuario } from '@/lib/server/rutaStorage'
+import { consumirLimite } from '@/lib/server/limites'
 import { procesarMensajeTareas } from '@/lib/server/ia/mensajeTareas'
 
 // Borde HTTP del turno conversacional de /ai. Toda la lógica real —carga de
@@ -60,6 +61,18 @@ export async function POST(request: Request) {
   if (rutaAjena) {
     return Response.json({ error: 'Uno de los adjuntos no pertenece a tu sesión' }, { status: 403 })
   }
+
+  // Tope de uso (auditoría 2026-08-22): cada llamada acá se factura en
+  // Gemini, así que sin tope una sesión autenticada podía generar gasto
+  // arbitrario en bucle. Se cobra el cupo con adjuntos ya validados y justo
+  // antes del trabajo caro — nunca por un 400/403 de más arriba.
+  //
+  // El tope vive en el borde HTTP, no dentro de procesarMensajeTareas: el
+  // otro llamador de esa función es el webhook de WhatsApp, que ya tiene su
+  // propio tope por remitente (MAX_COMANDOS_POR_HORA) y contarlo dos veces
+  // le partiría el presupuesto a la mitad sin motivo.
+  const limite = await consumirLimite(userId, 'ia_mensaje')
+  if (limite) return limite
 
   // Sprint 7.2 Parte A: historial de la sesión actual del overlay, si el
   // cliente manda uno — opcional y sin validar estrictamente acá, el agente

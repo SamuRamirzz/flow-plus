@@ -6,6 +6,7 @@ import { requerirUsuario } from '@/lib/server/usuario'
 import { supabaseServer } from '@/lib/server/supabaseServer'
 import { cargarHorarioServidor } from '@/lib/server/horario'
 import { esRutaDelUsuario } from '@/lib/server/rutaStorage'
+import { consumirLimite } from '@/lib/server/limites'
 import { diffHorario } from '@/lib/horario/diff'
 import { analizarHorarioSchema } from '@/lib/api/schemas'
 import { ok, errorJson, errorDeValidacion } from '@/lib/server/respuestas'
@@ -45,6 +46,12 @@ export async function POST(request: Request) {
   if (!esRutaDelUsuario(ruta, userId)) {
     return errorJson('La ruta de la imagen no pertenece a tu sesión', 403)
   }
+
+  // Tope de uso (auditoría 2026-08-22). Visión es lo más caro por llamada
+  // (tokens de imagen) y su uso legítimo es de los más bajos de la app —
+  // el horario se importa una vez por semestre, no varias veces por hora.
+  const limite = await consumirLimite(userId, 'ia_vision')
+  if (limite) return limite
 
   // La imagen viaja por Storage, no en el body: una foto de celular pesa
   // 3-8MB y mandarla como base64 en JSON la infla otro ~33% y se come el

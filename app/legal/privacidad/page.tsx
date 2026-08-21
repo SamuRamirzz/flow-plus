@@ -150,6 +150,11 @@ export default function PoliticaPrivacidadPage() {
                 Una memoria interna que la IA usa para no repetirse entre sesiones (por ejemplo, para no proponerte una materia duplicada).
               </Item>
               <Item>Un registro de qué avisos internos ya te mostramos, para no repetírtelos el mismo día.</Item>
+              <Item>
+                Un contador de uso de las funciones más costosas (cuántas veces le escribiste a la IA, analizaste un archivo o
+                generaste un informe en la última hora). Guarda solo la cuenta y el momento — nunca <Fuerte>qué</Fuerte>{' '}
+                escribiste ni sobre qué archivo — y existe para poner un tope que evite el abuso automatizado del servicio.
+              </Item>
             </Lista>
           </section>
 
@@ -359,7 +364,15 @@ export default function PoliticaPrivacidadPage() {
                 Google Drive, junto con su resumen de IA, sus tareas detectadas y el hilo de preguntas que hayas tenido sobre él.
               </Item>
               <Item>Si desconectás Google Drive, tus archivos ya subidos <Fuerte>se quedan en tu Drive</Fuerte> — son tuyos; Flow+ solo pierde el acceso a ellos.</Item>
-              <Item>El código de verificación de WhatsApp vence a los 10 minutos y queda marcado como usado — nunca se reutiliza, ni siquiera dentro de esa ventana.</Item>
+              <Item>
+                El código de verificación de WhatsApp vence a los 10 minutos y queda marcado como usado — nunca se reutiliza, ni
+                siquiera dentro de esa ventana. Pasadas 24 horas se <Fuerte>borra</Fuerte> de la base: ya no sirve para nada, y un
+                código guardado de más es una credencial guardada de más.
+              </Item>
+              <Item>
+                El contador de uso de funciones costosas (sección 02) se borra automáticamente cada día: solo importa lo ocurrido
+                dentro de la última hora, así que no se conserva nada más antiguo.
+              </Item>
               <Item>
                 El registro de comandos de WhatsApp (sección 02) se conserva por tiempo indefinido hoy, con el mismo criterio que el
                 registro técnico de ejecuciones de IA — con fines de auditoría y para poder diagnosticar por qué un comando no

@@ -1,5 +1,6 @@
 import { requerirUsuario } from '@/lib/server/usuario'
 import { supabaseServer } from '@/lib/server/supabaseServer'
+import { consumirLimite } from '@/lib/server/limites'
 import { enviarMenuWhatsApp } from '@/lib/server/whatsapp'
 import { MENU_PRINCIPAL } from '@/lib/whatsapp/menus'
 import { ok, errorJson } from '@/lib/server/respuestas'
@@ -28,6 +29,14 @@ export async function POST() {
   // la app y todavía no ha mandado ningún mensaje.
   const destino = (perfil.whatsapp_chat_id as string | null) ?? (perfil.whatsapp_numero as string | null)
   if (!destino) return errorJson('No hay un destino de WhatsApp guardado', 400)
+
+  // Tope antes de enviar (auditoría 2026-08-22). El número del canal es un
+  // recurso COMPARTIDO: si WhatsApp lo marca como spam por un bucle contra
+  // este endpoint, el canal se cae para todos los usuarios, no solo para
+  // quien abusó. Va justo antes del envío para no gastar cupo en las
+  // validaciones de arriba, que no cuestan nada.
+  const limite = await consumirLimite(userId, 'whatsapp_envio')
+  if (limite) return limite
 
   const envio = await enviarMenuWhatsApp(destino, MENU_PRINCIPAL)
   if (!envio.ok) {

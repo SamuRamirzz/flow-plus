@@ -1,4 +1,5 @@
 import { requerirUsuario } from '@/lib/server/usuario'
+import { consumirLimite } from '@/lib/server/limites'
 import { analizarArchivo } from '@/lib/server/analisisArchivo'
 import { ok, errorJson } from '@/lib/server/respuestas'
 
@@ -23,6 +24,11 @@ export async function POST(_request: Request, { params }: Contexto) {
   const auth = await requerirUsuario()
   if (!auth.ok) return auth.respuesta
   const { id } = await params
+
+  // Tope de uso (auditoría 2026-08-22): analizar un documento manda su
+  // contenido entero a Gemini, de lo más caro por llamada del proyecto.
+  const limite = await consumirLimite(auth.userId, 'ia_archivo')
+  if (limite) return limite
 
   const resultado = await analizarArchivo(auth.userId, id)
 

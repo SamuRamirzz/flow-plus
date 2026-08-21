@@ -108,9 +108,32 @@ export async function actualizarBloque(
   return { ok: true, bloque: data }
 }
 
-export async function borrarBloque(userId: string, bloqueId: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { error } = await supabaseServer.from('horario').delete().eq('id', bloqueId).eq('user_id', userId)
+// `noEncontrado` distingue "borré el bloque" de "no había nada que borrar",
+// y no es un detalle cosmético: la versión anterior devolvía `ok: true`
+// pasara lo que pasara, así que `DELETE /api/horario/<id-de-otro-usuario>`
+// respondía 200 `{eliminado: true}` sin haber borrado nada.
+//
+// El filtro `.eq('user_id', userId)` YA impedía tocar el bloque ajeno —se
+// verificó en la auditoría del 2026-08-22 que la fila de la víctima quedaba
+// intacta—, así que nunca hubo fuga ni destrucción de datos; el defecto era
+// que la respuesta mentía. Aparte de ser incorrecto de por sí, dejaba este
+// endpoint diciendo "listo" mientras `PATCH` sobre el mismo recurso ya
+// respondía 404 para el mismo caso.
+//
+// `count: 'exact'` es lo que permite saber si el filtro casó con alguna
+// fila; sin él, PostgREST no reporta cuántas borró.
+export async function borrarBloque(
+  userId: string,
+  bloqueId: string
+): Promise<{ ok: true } | { ok: false; error: string; noEncontrado?: boolean }> {
+  const { error, count } = await supabaseServer
+    .from('horario')
+    .delete({ count: 'exact' })
+    .eq('id', bloqueId)
+    .eq('user_id', userId)
+
   if (error) return { ok: false, error: error.message }
+  if ((count ?? 0) === 0) return { ok: false, error: 'Bloque de horario no encontrado', noEncontrado: true }
   return { ok: true }
 }
 

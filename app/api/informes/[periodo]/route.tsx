@@ -1,5 +1,6 @@
 import { renderToBuffer } from '@react-pdf/renderer'
 import { requerirUsuario } from '@/lib/server/usuario'
+import { consumirLimite } from '@/lib/server/limites'
 import { clienteDeSesion } from '@/lib/server/sesion'
 import { errorJson } from '@/lib/server/respuestas'
 import { cargarDatosCrudosInforme, generarPuntosClave } from '@/lib/server/informes'
@@ -40,6 +41,13 @@ export async function GET(request: Request, { params }: Contexto) {
   if (fechaParam !== null && !FORMATO_FECHA.test(fechaParam)) {
     return errorJson('El parámetro "fecha" debe tener formato YYYY-MM-DD', 400)
   }
+
+  // Tope de uso (auditoría 2026-08-22). Es la operación más pesada del
+  // proyecto: renderiza el PDF entero en el servidor Y llama a la IA para
+  // los puntos clave, así que suma coste de CPU y de tokens en la misma
+  // petición. De ahí el tope más bajo de los cinco de IA.
+  const limite = await consumirLimite(auth.userId, 'informe_pdf')
+  if (limite) return limite
 
   try {
     const supabase = await clienteDeSesion()

@@ -4,6 +4,7 @@ import { createId } from '@/lib/ai/utils'
 import { PREGUNTA_ARCHIVO_AGENT_ID, type PreguntaArchivoAgentOutput } from '@/lib/ai/agents/analisisArchivo'
 import type { AdjuntoIA, ConversationTurnInput } from '@/lib/ai/providers/gemini'
 import { requerirUsuario } from '@/lib/server/usuario'
+import { consumirLimite } from '@/lib/server/limites'
 import { supabaseServer } from '@/lib/server/supabaseServer'
 import { descargarArchivoStream } from '@/lib/server/googleDrive'
 import { politicaDeAnalisis } from '@/lib/server/analisisArchivo'
@@ -54,6 +55,12 @@ export async function POST(request: Request, { params }: Contexto) {
   if (error) return errorJson(error.message, 500)
   if (!archivo) return errorJson('Archivo no encontrado', 404)
   if (!archivo.drive_file_id) return errorJson('El archivo no tiene contenido en Drive todavía', 404)
+
+  // Tope de uso (auditoría 2026-08-22). Comparte cupo con "analizar": las
+  // dos mandan el archivo completo a Gemini, así que separar los topes
+  // dejaría duplicar el gasto alternando entre ambos endpoints.
+  const limite = await consumirLimite(userId, 'ia_archivo')
+  if (limite) return limite
 
   // Misma política de formatos que el análisis — no tiene sentido aceptar
   // preguntas sobre un .docx que el modelo no puede leer.

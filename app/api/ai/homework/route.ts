@@ -3,6 +3,7 @@ import { bootstrapAI } from '@/lib/ai/bootstrap'
 import { createId } from '@/lib/ai/utils'
 import { HOMEWORK_AGENT_ID, type HomeworkAgentOutput } from '@/lib/ai/agents/homework'
 import { requerirUsuario } from '@/lib/server/usuario'
+import { consumirLimite } from '@/lib/server/limites'
 
 // Primera versión con IA real (Sprint 2): HomeworkAgent llama a Gemini
 // 2.5 Flash-Lite con salida estructurada. Sigue sin OCR/imágenes/PDF y sin
@@ -38,6 +39,13 @@ export async function POST(request: Request) {
   // 'dev-user': el contexto consulta `materias`/`horario`/`perfil_academico`
   // filtrando por user_id, y con un id inventado no encontraría nada.
   const userId = auth.userId
+
+  // Tope de uso (auditoría 2026-08-22). Comparte cupo con /api/ai/tareas:
+  // los dos son "mándale un texto a la IA", así que separarlos permitiría
+  // duplicar el gasto alternando entre ambos.
+  const limite = await consumirLimite(userId, 'ia_mensaje')
+  if (limite) return limite
+
   const result = await aiOrchestrator.execute<HomeworkAgentOutput>(HOMEWORK_AGENT_ID, {
     id: createId('req'),
     agentId: HOMEWORK_AGENT_ID,
