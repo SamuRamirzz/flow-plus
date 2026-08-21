@@ -1,6 +1,7 @@
 export { taskManagementAgent } from './TaskManagementAgent'
 export { TASK_MANAGEMENT_AGENT_ID, TASK_MANAGEMENT_AGENT_TRIGGER_EVENT } from './types'
 export type {
+  BloqueRespuesta,
   CambiosTarea,
   OperacionAmbigua,
   OperacionBorrar,

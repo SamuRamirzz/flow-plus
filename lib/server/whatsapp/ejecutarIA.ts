@@ -1,5 +1,6 @@
 import { crearTareaServidor } from '@/lib/server/tareas'
 import { procesarMensajeTareas } from '@/lib/server/ia/mensajeTareas'
+import { renderizarBloques } from '@/lib/whatsapp/bloques'
 import type { OperacionTarea } from '@/lib/ai/agents/taskManagement'
 import type { ResultadoEjecucion } from './ejecutarComando'
 
@@ -128,11 +129,20 @@ export async function ejecutarConIA(userId: string, texto: string): Promise<Resu
     const operaciones = result.output.operaciones ?? []
     const lineas = operaciones.length > 0 ? await aplicarOperaciones(userId, operaciones) : []
 
-    // `mensaje` es lo que el propio modelo redactó (respuestas
-    // conversacionales, y también el resumen de notas/horario que
-    // procesarMensajeTareas ya ejecutó del lado del servidor).
+    // `mensaje` es lo que el propio modelo redactó como texto libre.
+    // `bloques` es la presentación ESTRUCTURADA (listas, tablas, pares
+    // etiqueta/valor) — bug real encontrado en producción: para
+    // "¿qué tareas hay?" el modelo devuelve `mensaje: "Tienes estas tareas
+    // pendientes:"` y la LISTA REAL de tareas en `bloques`, nunca en
+    // `mensaje`. Sin renderizarlos, el usuario veía el encabezado y ninguna
+    // tarea — la pantalla /ai nunca tuvo este bug porque su UI sí pinta
+    // `bloques`; este canal, al ser texto plano, los ignoraba.
     const mensajeModelo = typeof result.output.mensaje === 'string' ? result.output.mensaje.trim() : ''
+    const bloques = result.output.bloques ?? []
+    const textoBloques = bloques.length > 0 ? renderizarBloques(bloques) : ''
+
     const partes = [...lineas]
+    if (textoBloques) partes.unshift(textoBloques)
     if (mensajeModelo) partes.unshift(mensajeModelo)
 
     if (partes.length === 0) {
