@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   description: 'Qué datos recolecta Flow+, cómo los usa la IA, con quién se comparten y qué derechos tenés sobre ellos.',
 }
 
-const ACTUALIZADO = '6 de agosto de 2026'
+const ACTUALIZADO = '21 de agosto de 2026'
 
 const ITEMS: ItemIndice[] = [
   { id: 'responsable', numero: '01', titulo: 'Quién es el responsable de tus datos' },
@@ -82,10 +82,14 @@ export default function PoliticaPrivacidadPage() {
             <Sub>Datos de tu perfil</Sub>
             <Lista>
               <Item>Nombre y apellido — los que nos das al registrarte o los que trae tu cuenta de Google.</Item>
+              <Item>
+                Tu foto de perfil: la de tu cuenta de Google si iniciaste sesión así, o una que subas vos mismo desde Ajustes — podés
+                quitarla en cualquier momento.
+              </Item>
               <Item>País, zona horaria y formato de reloj (12h/24h) — para mostrarte fechas y horas correctas.</Item>
               <Item>Institución educativa, si la ingresás.</Item>
               <Item>Tu correo electrónico y el método con el que iniciás sesión (Google, o enlace mágico por correo — Flow+ no usa contraseñas).</Item>
-              <Item>Tus preferencias de notificación (cuántas por día, horario de &ldquo;no molestar&rdquo;).</Item>
+              <Item>Tus preferencias de notificación (cuántas por día, horario de &ldquo;no molestar&rdquo;, y si querés recibirlas también por WhatsApp).</Item>
             </Lista>
 
             <Sub>Datos académicos</Sub>
@@ -120,6 +124,22 @@ export default function PoliticaPrivacidadPage() {
               </Item>
             </Lista>
 
+            <Sub>Datos de WhatsApp (solo si lo vinculás)</Sub>
+            <Lista>
+              <Item>Tu número de teléfono, en el formato que nos das al pedir el código de vinculación.</Item>
+              <Item>
+                Un identificador interno de la conversación de WhatsApp — necesario porque WhatsApp a veces no revela tu número real al
+                proveedor que usamos (ver sección 06), así que a esa persona hay que reconocerla por otra vía.
+              </Item>
+              <Item>Un registro de los comandos que le escribís al asistente por WhatsApp (qué pediste y si se pudo hacer).</Item>
+            </Lista>
+            <P>
+              Un matiz importante sobre ese último punto: solo guardamos el <Fuerte>contenido</Fuerte> de mensajes que son un intento de
+              vincularte o un comando dirigido a Flow+. Cualquier otro mensaje a ese número (por ejemplo, de alguien que todavía no
+              vinculó su cuenta) recibe una respuesta automática fija explicando cómo vincularse, pero <Fuerte>lo que esa persona
+              escribió no se guarda</Fuerte> en ningún lado — ver el detalle en la sección 08.
+            </P>
+
             <Sub>Datos técnicos internos</Sub>
             <Lista>
               <Item>
@@ -143,8 +163,11 @@ export default function PoliticaPrivacidadPage() {
                 escribís al asistente de IA.
               </Item>
               <Item>
-                <Fuerte>De Google</Fuerte>, si elegís iniciar sesión con tu cuenta de Google (nombre y correo) o si conectás Google Drive
-                (correo de esa cuenta y el token de acceso descrito arriba).
+                <Fuerte>De Google</Fuerte>, si elegís iniciar sesión con tu cuenta de Google (nombre, correo y foto de perfil) o si
+                conectás Google Drive (correo de esa cuenta y el token de acceso descrito arriba).
+              </Item>
+              <Item>
+                <Fuerte>Por WhatsApp</Fuerte>, si vinculás tu número: los mensajes que le escribís al asistente por ese canal.
               </Item>
               <Item>
                 <Fuerte>Calculados por nosotros</Fuerte> a partir de lo anterior: las estadísticas de rendimiento (racha, puntualidad,
@@ -167,9 +190,11 @@ export default function PoliticaPrivacidadPage() {
               <Item>Para personalizar la experiencia: fechas y horas en tu zona horaria, formato de reloj, evitar materias duplicadas.</Item>
               <Item>Para avisarte, dentro de la app, sobre tareas próximas a vencer (ver sección 13 sobre cómo funciona esto — nunca por correo ni notificación push hoy).</Item>
               <Item>
-                Para que el asistente de IA pueda ayudarte: crear o editar tareas por texto o voz, leer horarios desde una foto, analizar
-                archivos que subís y responder tus preguntas sobre ellos.
+                Para que el asistente de IA pueda ayudarte: crear o editar tareas, notas y bloques de horario por texto, voz o foto, leer
+                horarios desde una foto, analizar archivos que subís y responder tus preguntas sobre ellos.
               </Item>
+              <Item>Para que puedas gestionar tu agenda por WhatsApp, si lo vinculás — crear tareas, consultar tu horario y recibir recordatorios ahí.</Item>
+              <Item>Para generar informes descargables en PDF de tu actividad (semanal, mensual o anual), cuando los pedís desde Ajustes.</Item>
             </Lista>
             <Destacado icono={Share2} titulo="Lo que nunca hacemos con tus datos" tono="positivo">
               No los usamos con fines publicitarios, no los vendemos ni los alquilamos a terceros, y no hay ningún servicio de analítica o
@@ -192,7 +217,15 @@ export default function PoliticaPrivacidadPage() {
               <Item>Fotos de tu horario de clases, cuando elegís importarlo así.</Item>
               <Item>El contenido de los archivos que subís, cuando pedís que se analicen.</Item>
               <Item>El contenido de tus notas, cuando le preguntás algo relacionado con ellas.</Item>
+              <Item>Los mensajes que le escribís al asistente por WhatsApp, si lo vinculaste — se procesan igual que los que escribís dentro de la app.</Item>
             </Lista>
+            <Sub>Sobre los informes en PDF</Sub>
+            <P>
+              La sección de &ldquo;puntos clave&rdquo; de un informe la redacta la IA a partir de datos ya agregados tuyos (cifras
+              calculadas, nunca el título o el id de una tarea puntual) — antes de mostrarla, verificamos automáticamente que ningún
+              número que mencione sea inventado. Si detectamos uno que no está en tus datos reales, descartamos ese texto entero y el
+              informe muestra en su lugar un resumen calculado directamente, sin pasar por la IA.
+            </P>
             <Sub>Sobre el audio de tu voz</Sub>
             <P>
               El dictado por voz usa el reconocimiento de voz que ya trae tu navegador (Web Speech API) — Flow+{' '}
@@ -241,13 +274,26 @@ export default function PoliticaPrivacidadPage() {
               <Item>
                 <Fuerte>Google Drive</Fuerte>: si lo conectás, Flow+ pide un permiso llamado <Fuerte>drive.file</Fuerte> — el más
                 restrictivo que ofrece Google para archivos. Con este permiso, Flow+ <Fuerte>solo puede ver y modificar los archivos que
-                la propia app crea</Fuerte> (dentro de una carpeta &ldquo;Flow+&rdquo; que crea en tu Drive) — nunca el resto de tu Drive, tus fotos,
+                la propia app crea</Fuerte>{' '}
+                (dentro de una carpeta &ldquo;Flow+&rdquo; que crea en tu Drive) — nunca el resto de tu Drive, tus fotos,
                 ni tus otros documentos.
               </Item>
               <Item>
                 <Fuerte>Gemini (IA)</Fuerte>: como se explica en la sección 05.
               </Item>
             </Lista>
+            <Sub>Whapi.Cloud — el canal de WhatsApp (solo si lo vinculás)</Sub>
+            <P>
+              Si vinculás WhatsApp, tus mensajes pasan por <Fuerte>Whapi.Cloud</Fuerte>, un proveedor que conecta aplicaciones a WhatsApp
+              mediante una sesión de dispositivo vinculada — el mismo mecanismo que usa &ldquo;WhatsApp Web&rdquo; — y no la API oficial de
+              negocios de Meta.
+            </P>
+            <P>
+              Con honestidad sobre cómo está montado hoy: el número al que le escribís es una cuenta de WhatsApp que funciona como el
+              canal de Flow+, vinculada de esa forma. Los mensajes pasan por esa sesión antes de llegar a nuestro servidor, igual que
+              pasarían por cualquier dispositivo vinculado a un WhatsApp. Nadie los lee manualmente de nuestro lado — el procesamiento
+              real lo hace el mismo asistente de IA que ya usás dentro de la app (sección 05), no una persona.
+            </P>
             <Sub>Vercel — donde vive la aplicación</Sub>
             <P>Flow+ está desplegado y se sirve desde la infraestructura de Vercel.</P>
             <Sub>Proveedor de dominio/DNS</Sub>
@@ -282,6 +328,18 @@ export default function PoliticaPrivacidadPage() {
               </Item>
               <Item>Toda la comunicación entre tu navegador y Flow+ viaja cifrada (HTTPS).</Item>
               <Item>Flow+ no usa contraseñas propias — el inicio de sesión es por Google o por enlace mágico de un solo uso enviado a tu correo, así que no hay una contraseña que se pueda filtrar de nuestro lado.</Item>
+              <Item>
+                Los mensajes de WhatsApp de números que no vinculaste a tu cuenta <Fuerte>no se guardan</Fuerte>, salvo que sean un
+                intento explícito de vincularse o un comando dirigido a Flow+ — una conversación privada con tus contactos nunca pasa a
+                formar parte de nuestros registros.
+              </Item>
+              <Item>Limitamos a 30 mensajes por hora por número de WhatsApp, para frenar el uso automatizado o abusivo de ese canal.</Item>
+              <Item>
+                Las fotos de perfil que subís se guardan en un almacenamiento <Fuerte>público</Fuerte> — a diferencia de tus archivos y
+                tareas, que son privados. Cualquiera que conociera la URL exacta de tu foto podría verla, aunque esa URL no se muestra en
+                ningún lugar público ni es adivinable. Si preferís evitar esto, podés dejar la foto de tu cuenta de Google (que no vive
+                en nuestro almacenamiento) o no poner ninguna.
+              </Item>
             </Lista>
           </section>
 
@@ -301,6 +359,12 @@ export default function PoliticaPrivacidadPage() {
                 Google Drive, junto con su resumen de IA, sus tareas detectadas y el hilo de preguntas que hayas tenido sobre él.
               </Item>
               <Item>Si desconectás Google Drive, tus archivos ya subidos <Fuerte>se quedan en tu Drive</Fuerte> — son tuyos; Flow+ solo pierde el acceso a ellos.</Item>
+              <Item>El código de verificación de WhatsApp vence a los 10 minutos y queda marcado como usado — nunca se reutiliza, ni siquiera dentro de esa ventana.</Item>
+              <Item>
+                El registro de comandos de WhatsApp (sección 02) se conserva por tiempo indefinido hoy, con el mismo criterio que el
+                registro técnico de ejecuciones de IA — con fines de auditoría y para poder diagnosticar por qué un comando no
+                funcionó como esperabas.
+              </Item>
             </Lista>
           </section>
 
@@ -320,12 +384,19 @@ export default function PoliticaPrivacidadPage() {
               <Item>Acceder de forma gratuita a tus datos personales.</Item>
             </Lista>
 
-            <Destacado icono={AlertTriangle} titulo="Con honestidad sobre el estado actual" tono="pendiente">
-              Hoy podés ejercer estos derechos escribiéndonos directamente (sección 15) y los atendemos manualmente. <Fuerte>Todavía no
-              existe</Fuerte> un botón de autoservicio dentro de la app para &ldquo;borrar mi cuenta&rdquo; ni para &ldquo;exportar todos mis datos&rdquo; — es una
-              función que reconocemos como pendiente y que planeamos construir. Lo que <Fuerte>sí</Fuerte> podés hacer vos mismo, en
-              cualquier momento y sin escribirnos: <Fuerte>borrar cualquier archivo</Fuerte> (desde la sección Archivos — se elimina tanto
-              de Flow+ como de tu Drive) y <Fuerte>desconectar tu cuenta de Google Drive</Fuerte> (desde Ajustes → Perfil).
+            <Destacado icono={AlertTriangle} titulo="Cómo ejercer estos derechos hoy" tono="positivo">
+              Desde <Fuerte>Ajustes → Soporte</Fuerte>{' '}
+              podés solicitar la eliminación completa de tu cuenta vos mismo, sin escribirnos:
+              elegís si también querés borrar los archivos que Flow+ subió a tu Drive, escribís &ldquo;ELIMINAR&rdquo; para confirmar, y tu cuenta
+              queda programada para borrarse en <Fuerte>14 días</Fuerte> — un plazo pensado para que puedas arrepentirte; podés cancelar
+              la solicitud con un solo clic en cualquier momento antes de que se cumpla. Pasado ese plazo, borramos tu perfil, tus
+              tareas, materias, horario, archivos, notas y todo lo demás descrito en la sección 02.
+              <Fuerte> Un registro mínimo sobrevive a propósito</Fuerte>: tu correo, la fecha en que se ejecutó el borrado y si tus
+              archivos de Drive se eliminaron o no, como constancia de que la solicitud se cumplió — nunca tus tareas, tus notas ni el
+              contenido de tus archivos. Lo que también podés hacer vos mismo, sin pasar por este flujo: borrar cualquier archivo suelto
+              (desde Archivos), desconectar Google Drive y desvincular tu WhatsApp — todo desde Ajustes. Un botón de{' '}
+              <Fuerte>exportar todos tus datos</Fuerte> todavía no existe — para eso, o para cualquier otra duda sobre tus derechos,
+              escribinos (sección 15).
             </Destacado>
           </section>
 
@@ -370,9 +441,10 @@ export default function PoliticaPrivacidadPage() {
               <Item><Fuerte>Almacenamiento local del navegador</Fuerte>: para recordar tu preferencia de tema (claro/oscuro) y, si estás en modo invitado, tus datos (ver sección 12).</Item>
             </Lista>
             <P>
-              Sobre notificaciones (sección 04): hoy los avisos de tareas próximas a vencer se muestran <Fuerte>únicamente dentro de la
-              app</Fuerte> (la campana de notificaciones) — no enviamos correos ni notificaciones push. Recordatorios por WhatsApp
-              aparecen mencionados como una función planeada para el futuro dentro de la app, pero <Fuerte>todavía no está construida</Fuerte>.
+              Sobre notificaciones (sección 04): los avisos de tareas próximas a vencer, vencidas o notas nuevas se muestran{' '}
+              <Fuerte>dentro de la app</Fuerte> (la campana de notificaciones) — no enviamos correos ni notificaciones push nativas del
+              sistema. Si vinculás tu WhatsApp, podés además activar (apagado por defecto, desde Ajustes → WhatsApp) que esas mismas
+              notificaciones te lleguen también por ahí.
             </P>
           </section>
 

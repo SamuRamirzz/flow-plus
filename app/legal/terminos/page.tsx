@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   description: 'Las reglas de uso de Flow+: qué podés esperar del servicio, tus responsabilidades y los límites de la IA.',
 }
 
-const ACTUALIZADO = '6 de agosto de 2026'
+const ACTUALIZADO = '21 de agosto de 2026'
 
 const ITEMS: ItemIndice[] = [
   { id: 'aceptacion', numero: '01', titulo: 'Aceptación de los términos' },
@@ -115,6 +115,13 @@ export default function TerminosServicioPage() {
               Política de Privacidad — la resumimos acá: texto que escribís o dictás, fotos de tu horario, y archivos que subís cuando
               pedís que se analicen.
             </P>
+            <P>
+              Si vinculás WhatsApp, hablás con el mismo asistente por ese canal — con una diferencia de autonomía que vale la pena
+              conocer. Dentro de la app, la IA te muestra cada tarea que propone crear, modificar o borrar antes de aplicarla, y podés
+              deshacerlo. Por WhatsApp, <Fuerte>crear una tarea se aplica directo</Fuerte> (la podés borrar después si fue un error);
+              modificar o borrar una tarea que ya existe, en cambio, <Fuerte>nunca se ejecuta solo por ese canal</Fuerte> — el asistente
+              te pide que lo confirmes desde la app.
+            </P>
           </section>
 
           <section className="mb-14">
@@ -138,7 +145,8 @@ export default function TerminosServicioPage() {
               Integración con Google Drive
             </TituloSeccion>
             <Destacado icono={FolderOpen} titulo="Un permiso acotado, y reversible en cualquier momento">
-              Si conectás Google Drive, Flow+ pide el permiso <Fuerte>drive.file</Fuerte> — solo puede ver y modificar los archivos que la
+              Si conectás Google Drive, Flow+ pide el permiso <Fuerte>drive.file</Fuerte>{' '}
+              — solo puede ver y modificar los archivos que la
               propia app crea dentro de una carpeta &ldquo;Flow+&rdquo; en tu Drive, nunca el resto de tus archivos. Podés desconectar Google Drive
               cuando quieras desde <Fuerte>Ajustes → Perfil</Fuerte>; al hacerlo, los archivos que ya se habían subido{' '}
               <Fuerte>se quedan en tu Drive</Fuerte> (son tuyos), Flow+ simplemente pierde el acceso a ellos.
@@ -166,6 +174,7 @@ export default function TerminosServicioPage() {
               <Item>Usar el asistente de IA para generar contenido dañino, engañoso o destinado a hacer trampa académica en formas que infrinjan las políticas de tu institución.</Item>
               <Item>Automatizar el uso del servicio de forma que sobrecargue nuestra infraestructura o la de nuestros proveedores.</Item>
               <Item>Compartir tu cuenta con terceros o hacer ingeniería inversa de la aplicación.</Item>
+              <Item>Usar el canal de WhatsApp de Flow+ para enviar spam, contenido ajeno a tu agenda académica, o intentar sobrecargarlo con mensajes automatizados.</Item>
             </Lista>
           </section>
 
@@ -217,8 +226,9 @@ export default function TerminosServicioPage() {
               (sección 08), avisando cuando sea razonablemente posible hacerlo.
             </P>
             <P>
-              Como se explica en la Política de Privacidad, hoy no existe un botón de autoservicio para borrar completamente tu cuenta —
-              podés solicitarlo escribiéndonos, y lo procesamos manualmente mientras esa función no esté construida.
+              Podés borrar tu cuenta vos mismo, sin escribirnos, desde <Fuerte>Ajustes → Soporte</Fuerte> — la solicitud queda programada
+              para ejecutarse 14 días después, plazo durante el cual podés cancelarla con un solo clic. El detalle completo de qué se
+              borra y qué constancia mínima queda registrada está en la sección de derechos de la Política de Privacidad.
             </P>
           </section>
 
