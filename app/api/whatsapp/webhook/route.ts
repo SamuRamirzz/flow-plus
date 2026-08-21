@@ -76,16 +76,43 @@ const MAX_COMANDOS_POR_HORA = 30
 // que convierte esto en autenticación real y no en un simple "escribe tu
 // correo", que cualquiera podría teclear.
 const RETO_AUTENTICACION = [
-  '🔒 *Necesito confirmar que eres tú*',
+  '👋 *Hola, soy Flow+*',
   '',
-  'Este WhatsApp todavía no está vinculado a ninguna cuenta de Flow+.',
+  'Soy tu agenda académica. Por aquí puedes crear tareas, consultar tu horario, guardar notas y recibir recordatorios — escribiéndome normal, sin aprenderte nada.',
   '',
-  'Para autenticarte:',
-  '1️⃣ Abre Flow+ → *Ajustes → WhatsApp*',
-  '2️⃣ Pide un código de verificación',
-  '3️⃣ Respóndeme aquí con:  `/vincular 123456`',
+  '━━━━━━━━━━━━━━━',
   '',
-  '_El código vence a los 10 minutos._',
+  '🔒 *Antes necesito saber quién eres*',
+  '',
+  'Este WhatsApp aún no está conectado con ninguna cuenta.',
+  '',
+  '*Paso 1* · Abre Flow+ y entra en Ajustes → WhatsApp',
+  '*Paso 2* · Escribe tu número y toca Continuar',
+  '*Paso 3* · Te aparecerá un código en pantalla',
+  '*Paso 4* · Cópialo y mándamelo aquí tal cual:',
+  '',
+  '`/vincular 123456`',
+  '',
+  '_(pon tu código en lugar de 123456 — vence a los 10 minutos)_',
+].join('\n')
+
+// Primer mensaje tras vincularse: quién soy y qué puedo hacer, con ejemplos
+// concretos en vez de una lista de comandos. Alguien que acaba de conectar
+// su WhatsApp no sabe todavía que puede escribir en lenguaje natural, que es
+// justo lo que hace útil el canal.
+const BIENVENIDA = [
+  '✅ *¡Listo! Ya estamos conectados*',
+  '',
+  'Soy Flow+, tu agenda académica. Pruébame:',
+  '',
+  '💬 *Escríbeme normal*',
+  '_"ensayo de historia para el viernes"_',
+  '_"¿qué tengo pendiente?"_',
+  '',
+  '📋 *O escribe* `menú` *para elegir con botones*',
+  '',
+  '⚡ *O usa comandos directos*',
+  '`/tareas` · `/horario` · `/proximo` · `/ayuda`',
 ].join('\n')
 
 type PerfilVinculado = { userId: string; zonaHoraria: string | null }
@@ -199,7 +226,7 @@ async function intentarVinculacionPorCodigo(mensaje: MensajeEntrante, codigo: st
   }
 
   await supabaseServer.from('whatsapp_codigos_verificacion').update({ usado: true }).eq('id', fila.id)
-  return '✅ Listo, tu WhatsApp quedó vinculado a Flow+.\n\nEscribe */ayuda* para ver lo que puedes hacer.'
+  return BIENVENIDA
 }
 
 export async function POST(request: Request) {

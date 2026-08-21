@@ -87,16 +87,32 @@ function ContenidoAjustes({ categoriaInicial, cerrar }: { categoriaInicial: Cate
           {categoriasVisibles.length === 0 ? (
             <p className="text-muted text-xs text-center py-6 px-2">Nada coincide con «{busqueda}»</p>
           ) : (
-            categoriasVisibles.map((cat) => {
+            categoriasVisibles.map((cat, i) => {
               const seleccionada = activa.id === cat.id
               return (
-                <button
+                <motion.button
                   key={cat.id}
                   onClick={() => elegir(cat.id)}
-                  className={`flex items-center justify-between gap-2.5 px-2.5 py-2.5 rounded-2xl text-sm text-left transition ${
-                    seleccionada ? 'bg-panel-2/70 text-paper' : 'text-muted hover:text-paper hover:bg-panel-2/40'
+                  // Escalonado corto: 0,03 s por ítem entra como una sola
+                  // cascada, no como nueve animaciones separadas.
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.32, ease: EASE_ASENTAR, delay: i * 0.03 }}
+                  className={`relative flex items-center justify-between gap-2.5 px-2.5 py-2.5 rounded-2xl text-sm text-left transition-colors ${
+                    seleccionada ? 'text-paper' : 'text-muted hover:text-paper hover:bg-panel-2/40'
                   }`}
                 >
+                  {/* El fondo de "seleccionada" es un elemento compartido con
+                      layoutId: al cambiar de categoría se DESLIZA hasta la
+                      nueva en vez de apagarse aquí y encenderse allá. */}
+                  {seleccionada && (
+                    <motion.span
+                      layoutId="ajustes-seleccion"
+                      transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                      className="absolute inset-0 rounded-2xl bg-panel-2/70"
+                    />
+                  )}
+                  <span className="relative flex items-center justify-between gap-2.5 w-full min-w-0">
                   <span className="flex items-center gap-2.5 min-w-0">
                     {/* Cuadrado de ícono al estilo de la referencia de macOS,
                         pero monocromo: el proyecto tiene un único color de
@@ -112,7 +128,8 @@ function ContenidoAjustes({ categoriaInicial, cerrar }: { categoriaInicial: Cate
                     <span className="truncate">{cat.label}</span>
                   </span>
                   <ChevronRight size={14} className="text-muted lg:hidden flex-shrink-0" />
-                </button>
+                  </span>
+                </motion.button>
               )
             })
           )}
@@ -132,10 +149,13 @@ function ContenidoAjustes({ categoriaInicial, cerrar }: { categoriaInicial: Cate
           <AnimatePresence mode="wait">
             <motion.div
               key={activa.id}
-              initial={{ opacity: 0, y: 8, filter: 'blur(6px)' }}
+              initial={{ opacity: 0, y: 10, filter: 'blur(6px)' }}
               animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-              exit={{ opacity: 0, filter: 'blur(4px)' }}
-              transition={{ duration: 0.3, ease: EASE_ASENTAR }}
+              exit={{ opacity: 0, y: -6, filter: 'blur(4px)' }}
+              // 0,45 s con esta curva es la duración que este proyecto fijó
+              // al corregir las animaciones de /ai: por debajo de ~0,35 s el
+              // ojo percibe un salto en vez de un recorrido.
+              transition={{ duration: 0.45, ease: EASE_ASENTAR }}
             >
               <Panel />
             </motion.div>

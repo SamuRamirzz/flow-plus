@@ -197,6 +197,24 @@ describe('respuestas de botón y de lista', () => {
     ],
   })
 
+  it('QUITA el prefijo ButtonsV3: que antepone WhatsApp (verificado contra la API real)', () => {
+    // Al enviar `id: "menu:tareas_hoy"`, la respuesta real de Whapi lo
+    // guarda como `ButtonsV3:menu:tareas_hoy`. Sin limpiarlo, el id nunca
+    // casa con el menú y el texto acaba yendo a la IA.
+    const [m] = extraerMensajesDeTexto(
+      conBoton({ type: 'buttons_reply', buttons_reply: { id: 'ButtonsV3:menu:tareas_hoy', title: 'Tareas de hoy' } })
+    )
+    expect(m.texto).toBe('menu:tareas_hoy')
+    expect(m.esOpcion).toBe(true)
+  })
+
+  it('QUITA también el prefijo ListV3: de una fila de lista', () => {
+    const [m] = extraerMensajesDeTexto(
+      conBoton({ type: 'list_reply', list_reply: { id: 'ListV3:menu:horario', title: 'Mi horario' } })
+    )
+    expect(m.texto).toBe('menu:horario')
+  })
+
   it('normaliza un botón tocado a su id, marcándolo como opción', () => {
     const [m] = extraerMensajesDeTexto(
       conBoton({ type: 'buttons_reply', buttons_reply: { id: 'menu:tareas_hoy', title: 'Tareas de hoy' } })

@@ -44,6 +44,22 @@ type MensajeCrudo = {
   }
 }
 
+// WhatsApp/Whapi NO devuelven el id tal cual se envió: le anteponen un
+// prefijo de versión. Verificado contra el canal real — al mandar
+// `id: "menu:tareas_hoy"`, la respuesta de la API confirma que quedó
+// guardado como `ButtonsV3:menu:tareas_hoy` (o `ListV3:...` en una lista).
+//
+// Sin quitarlo, `resolverOpcion` no casaría NUNCA y el texto
+// "ButtonsV3:menu:tareas_hoy" acabaría enviado a la IA como si fuera
+// lenguaje natural del usuario. No se detecta simulando el webhook a mano
+// —el payload inventado no lleva prefijo—, solo mirando lo que devuelve el
+// servicio real.
+const PREFIJOS_ID_INTERACTIVO = /^(ButtonsV\d+|ListV\d+|Buttons|List):/i
+
+export function limpiarIdOpcion(id: string): string {
+  return id.replace(PREFIJOS_ID_INTERACTIVO, '')
+}
+
 /**
  * Id de la opción elegida, si este mensaje crudo es la respuesta a un botón
  * o a una lista. `null` si es un mensaje normal.
@@ -52,7 +68,9 @@ function idDeRespuestaInteractiva(crudo: MensajeCrudo): string | null {
   if (crudo.type !== 'reply' || !crudo.reply) return null
   const elegida = crudo.reply.buttons_reply ?? crudo.reply.list_reply
   const id = elegida?.id
-  return typeof id === 'string' && id.length > 0 ? id : null
+  if (typeof id !== 'string' || id.length === 0) return null
+  const limpio = limpiarIdOpcion(id)
+  return limpio.length > 0 ? limpio : null
 }
 
 /** Un chat de grupo termina en `@g.us`; uno individual, en `@s.whatsapp.net`. */
